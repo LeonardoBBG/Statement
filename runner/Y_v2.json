@@ -1,0 +1,76 @@
+{
+  "version": "Y_v2",
+  "x_tests": {
+    "X1": {
+      "name": "Appeal treated as final / Appeal integrity undermined / Predetermination signals",
+      "definition": "Evidence that the appeal process was compromised by treating the dismissal decision as final or predetermined.",
+      "positive_indicators": [
+        "appeal outcome had been predetermined",
+        "management were communicating the alleged misconduct as fact while the appeal was still ongoing",
+        "dismissal decision was being treated internally as final"
+      ],
+      "excludes": []
+    },
+    "X2": {
+      "name": "Dissemination of allegations as fact to colleagues / Internally while appeal live",
+      "definition": "Allegations related to the dismissal were shared internally as established facts during the appeal process.",
+      "positive_indicators": [
+        "the allegation was presented as an established conclusion",
+        "the dismissal decision was being treated internally as final",
+        "the circulation of such a serious allegation prior to the conclusion of the appeal"
+      ],
+      "excludes": []
+    },
+    "X3": {
+      "name": "Disclosure to external third parties / Unauthorised disclosure / Confidentiality breach",
+      "definition": "Unauthorized disclosure of confidential information to external parties.",
+      "positive_indicators": [
+        "communication of contested disciplinary allegations to an external third party",
+        "unauthorised disclosure of confidential and personal information"
+      ],
+      "excludes": []
+    },
+    "X4": {
+      "name": "Management as the source (team leader/management communicated it) rather than gossip",
+      "definition": "The source of the disclosure is identified as management rather than informal speculation.",
+      "positive_indicators": [
+        "the source of this disclosure was management, specifically my Team Leader",
+        "the dissemination of the allegation did not arise from informal speculation or misunderstanding among colleagues"
+      ],
+      "excludes": []
+    },
+    "X5": {
+      "name": "Adverse reputational/prospects impact flowing from disclosure/predetermination",
+      "definition": "Negative consequences on reputation or prospects due to the disclosure or predetermination.",
+      "positive_indicators": [
+        "the disclosure of the reason for my dismissal had material and adverse consequences",
+        "the manner in which it was presented as an established finding, had damaged my professional reputation and prospects"
+      ],
+      "excludes": []
+    }
+  },
+  "classes": {
+    "DIRECT_X": {
+      "definition": "Supports at least one of X1, X2, X3, or X4 (misconduct/behaviour undermining appeal integrity or confidentiality). X5 alone is not enough for DIRECT_X.",
+      "min_support": 1,
+      "evidence_required": true
+    },
+    "CONTRASTIVE": {
+      "definition": "Describes proper appeal/open-minded review/independent reconsideration (useful comparison), but no misconduct matching X1..X4.",
+      "evidence_required": true
+    },
+    "REMEDY": {
+      "definition": "Primarily about compensation/mitigation/Polkey/Johnson v Unisys/Triggs/timelines/causation of loss and NOT about X1..X4.",
+      "evidence_required": true
+    },
+    "IRRELEVANT": {
+      "definition": "None of the above."
+    }
+  },
+  "hard_rules": [
+    "DIRECT_X requires supports_X contains at least one of [X1,X2,X3,X4] AND evidence_required=true.",
+    "If only remedy topics appear (compensation/mitigation/timeline) and none of X1..X4 -> REMEDY.",
+    "CONTRASTIVE must mention proper appeal/open-minded/independent review language and exclude misconduct.",
+    "If evidence is missing or vague, prefer IRRELEVANT over DIRECT_X."
+  ]
+}
