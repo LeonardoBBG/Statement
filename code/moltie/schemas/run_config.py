@@ -11,6 +11,12 @@ class RunConfig:
     k_verify_docs: int = 30
     k_chunks_per_doc: int = 12
 
+    # NEW: windowed retrieval params (coverage)
+    window_size: int = 24
+    stride: int = 12
+    top_windows: int = 3
+    min_hits: int = 2
+ 
     # loop control
     max_iters: int = 3
     eps_improve: int = 3           # min score improvement to count as progress
@@ -39,7 +45,7 @@ class RunConfig:
             eps_improve=int(d.get("eps_improve", 3)),
             plateau_p=int(d.get("plateau_p", 2)),
             thresh_score=int(d.get("thresh_score", 70)),
-            thresh_conf=int(d.get("thresh_conf", 75)),
+            thresh_conf=int(d.get("thresh_conf", 70)),
             anchors_required=int(d.get("anchors_required", 2)),
             min_iters_for_anchors=int(d.get("min_iters_for_anchors", 2)),
             max_total_verifications=(int(d["max_total_verifications"]) if d.get("max_total_verifications") is not None else None),
