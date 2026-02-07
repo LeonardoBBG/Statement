@@ -18,7 +18,7 @@ class RunConfig:
 
     # acceptance thresholds
     thresh_score: int = 70
-    thresh_conf: int = 75
+    thresh_conf: int = 70
     anchors_required: int = 2
     min_iters_for_anchors: int = 2
 
