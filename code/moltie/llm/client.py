@@ -15,6 +15,11 @@ _JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 _ILLEGAL_KEY_SNIPS = (
     '"matched_paras"',
     '"relevant_paras"',
+    '"supporting_paragraphs"',
+    '"retrieval_explanation"',
+    '"retrieval_k"',
+    '"retrieval_min_hits"',
+    '"retrieval_matched_paras"',
     '"title"',
     '"paras"',
     '"text": "',
@@ -123,14 +128,92 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
     last_err: Optional[Exception] = None
     last_txt: str = ""
 
-    # small helper to avoid repeating the same correction text
+    # --- required keys for a Verdict root object ---
+    _REQUIRED_KEYS = {
+        "atom_id",
+        "doc_id",
+        "relevant",
+        "matched_X",
+        "precedent_score",
+        "confidence",
+        "anchors",
+        "use_mode",
+        "note",
+        "retrieval_score",
+        "retrieval_method",
+        "proposition_winner",
+        "appeal_outcome",
+        "successful_party",
+        "distinguishers",
+    }
+
+    # --- keys that strongly indicate "wrong object" (retrieval report / echo) ---
+    _WRONG_OBJECT_KEYS = {
+        "supporting_paragraphs",
+        "retrieval_k",
+        "retrieval_min_hits",
+        "retrieval_matched_paras",
+        "retrieval_explanation",
+        "input",
+        "paras",
+        "matched_paras",
+    }
+
+    def _extract_from_prompt(prompt_txt: str, key: str) -> Optional[str]:
+        """
+        Best-effort extraction of a string value from the prompt without regex.
+        Looks for: "key": "VALUE"
+        """
+        needle = f"\"{key}\":"
+        j = prompt_txt.find(needle)
+        if j == -1:
+            return None
+        # move to after colon
+        k = prompt_txt.find(":", j)
+        if k == -1:
+            return None
+        tail = prompt_txt[k + 1 :].lstrip()
+        if not tail.startswith("\""):
+            return None
+        tail = tail[1:]
+        end = tail.find("\"")
+        if end == -1:
+            return None
+        val = tail[:end]
+        return val.strip() or None
+
+    def _coerce_missing_ids(obj: Dict[str, Any], prompt_txt: str) -> Dict[str, Any]:
+        """
+        If model omits atom_id/doc_id, force-fill from prompt (template/input contains them).
+        """
+        if not str(obj.get("atom_id") or "").strip():
+            aid = _extract_from_prompt(prompt_txt, "atom_id")
+            if aid:
+                obj["atom_id"] = aid
+        if not str(obj.get("doc_id") or "").strip():
+            did = _extract_from_prompt(prompt_txt, "doc_id")
+            if did:
+                obj["doc_id"] = did
+        return obj
+
+    def _is_wrong_object(obj: Any) -> bool:
+        if not isinstance(obj, dict):
+            return True
+        keys = set(obj.keys())
+        if keys & _WRONG_OBJECT_KEYS:
+            return True
+        # If it doesn't even contain core Verdict keys, it's wrong
+        if not {"atom_id", "doc_id", "relevant", "anchors", "precedent_score", "confidence"} <= keys:
+            return True
+        return False
+
     def _prepend_correction(p: str, why: str) -> str:
         return (
             "IMPORTANT (NON-NEGOTIABLE OUTPUT CONTRACT):\n"
-            "- Output ONE JSON object ONLY.\n"
+            "- Output ONE JSON object ONLY that matches the Verdict schema.\n"
+            "- Do NOT output retrieval reports. Do NOT output supporting_paragraphs or retrieval_explanation.\n"
             "- Use ONLY allowed keys from the Verdict schema.\n"
-            "- Do NOT echo Input JSON. Do NOT output evidence paragraphs.\n"
-            "- Do NOT output keys like matched_paras / paras / input / analysis.\n"
+            "- You MUST include atom_id and doc_id (copy exactly from the input/template).\n"
             f"- Fix required because: {why}\n\n"
             + p
         )
@@ -141,71 +224,72 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
             txt = _ollama_generate(prompt, cfg, force_json=True)
             last_txt = txt
 
-            # hard tripwires to trigger repair (paragraph-dump / invented keys)
             if len(txt) > _MAX_RAW_OUTPUT_CHARS:
                 raise ValueError("Model output too long (likely paragraph dump).")
 
-            # NOTE: This catches the specific failure you saw: {"matched_paras":[...]}
-            # Keep this as a fast pre-parse reject to force repair.
-            if '"matched_paras"' in txt:
-                raise ValueError('Model returned "matched_paras" instead of Verdict object.')
-
             if any(sn in txt for sn in _ILLEGAL_KEY_SNIPS):
-                # allow "text" only if it appears inside anchors.quote, but models often dump paras
-                # so we hard-fail and let repair produce a minimal verdict
                 raise ValueError("Model output included illegal keys/paragraph dumps.")
 
             obj = _extract_json_object(txt)
 
-            # extra guard: reject wrong-root objects even if valid JSON
-            # (e.g., model echoes input payload or returns retrieval object)
-            if isinstance(obj, dict) and "matched_paras" in obj:
-                raise ValueError('Parsed JSON contains "matched_paras" (wrong object).')
+            # force-fill atom_id/doc_id if omitted
+            if isinstance(obj, dict):
+                obj = _coerce_missing_ids(obj, prompt)
+
+            # reject wrong-object JSON (retrieval report / echo)
+            if _is_wrong_object(obj):
+                raise ValueError(f"Wrong JSON object returned (not a Verdict). Keys={sorted(list(obj.keys()))[:12] if isinstance(obj, dict) else type(obj)}")
+
+            # required keys check (pre-validation; gives better error message)
+            missing = [k for k in _REQUIRED_KEYS if k not in obj]
+            if missing:
+                raise ValueError(f"Verdict JSON missing required keys: {missing[:8]}")
 
             VerdictValidator.validate(obj)
             return Verdict.from_dict(obj)
 
         except Exception as e:
             last_err = e
-            # tighten prompt *specifically* based on what happened
             prompt = _prepend_correction(prompt, why=str(e))
 
         # ---- Attempt B: repair ----
         try:
             repair_prompt = _make_repair_prompt(last_txt if last_txt else "EMPTY_OUTPUT")
-            # strengthen repair: tell it exactly what went wrong without changing variable names
             repair_prompt = (
                 "REPAIR TASK:\n"
-                "You previously output the WRONG JSON shape.\n"
-                "Return ONE Verdict JSON object ONLY (schema-compliant) with ONLY allowed keys.\n"
-                "Do NOT include matched_paras, paras, input, analysis, or any evidence dump.\n"
+                "You previously output the WRONG JSON object.\n"
+                "Return ONE Verdict JSON object ONLY with EXACT allowed keys.\n"
+                "Do NOT output retrieval reports (no supporting_paragraphs, retrieval_explanation, retrieval_k, etc.).\n"
+                "You MUST include atom_id and doc_id exactly as in the input/template.\n"
                 "If uncertain, set relevant=false, anchors=[], precedent_score<=40, use_mode=\"contrast\".\n\n"
                 + repair_prompt
             )
 
             txt2 = _ollama_generate(repair_prompt, cfg, force_json=True)
 
-            # Repair output should be small and schema-only
             if len(txt2) > _MAX_RAW_OUTPUT_CHARS:
                 raise ValueError("Repair output too long (likely paragraph dump).")
 
-            if '"matched_paras"' in txt2:
-                raise ValueError('Repair returned "matched_paras" (still wrong object).')
-
             obj2 = _extract_json_object(txt2)
 
-            if isinstance(obj2, dict) and "matched_paras" in obj2:
-                raise ValueError('Parsed repair JSON contains "matched_paras" (wrong object).')
+            if isinstance(obj2, dict):
+                obj2 = _coerce_missing_ids(obj2, prompt)
+
+            if _is_wrong_object(obj2):
+                raise ValueError(f"Repair returned wrong JSON object. Keys={sorted(list(obj2.keys()))[:12] if isinstance(obj2, dict) else type(obj2)}")
+
+            missing2 = [k for k in _REQUIRED_KEYS if k not in obj2]
+            if missing2:
+                raise ValueError(f"Repair Verdict missing required keys: {missing2[:8]}")
 
             VerdictValidator.validate(obj2)
             return Verdict.from_dict(obj2)
 
         except Exception as e2:
             last_err = e2
-            # tighten the next attempt slightly without bloating the whole prompt
             prompt = (
                 "IMPORTANT: Output STRICT JSON ONLY matching the Verdict schema. "
-                "Use only allowed keys. No paragraph dumps. Do NOT echo input JSON.\n\n"
+                "Use only allowed keys. Do NOT echo input JSON. Do NOT output retrieval reports.\n\n"
                 + prompt
             )
             continue
@@ -214,3 +298,4 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
         f"verify_with_ollama failed after {cfg.max_retries + 1} attempts. "
         f"Last error: {last_err}. Last output (truncated): {last_txt[:1200]!r}"
     )
+
