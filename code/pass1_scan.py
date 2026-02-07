@@ -19,26 +19,26 @@ except Exception:
 # JSONL iteration (streaming, multi-appeal safe)
 # =========================
 
+import re
+from typing import Any
+
 _SEG_RE = re.compile(r"(?:\r?\n)?\s*###\s*Segment\s*\d+\s*(?:\r?\n)?", re.IGNORECASE)
 
+def clip(s: Any, n: int = 2500) -> str:
+    if s is None:
+        return ""
+    s = str(s).strip()
+    return s[:n]
+
 def clean_segmented_summary(s: Any) -> str:
-    """
-    Remove '### Segment N' markers and stitch the remaining text.
-    Keeps content, removes the segmentation scaffolding.
-    """
     if s is None:
         return ""
     s = str(s).strip()
     if not s:
         return ""
-
-    # Replace segment headers with a newline break
     s = _SEG_RE.sub("\n", s)
-
-    # Collapse excessive whitespace/newlines
     s = re.sub(r"\n{3,}", "\n\n", s)
     s = re.sub(r"[ \t]{2,}", " ", s)
-
     return s.strip()
 
 def iter_jsonl_records(path: Path) -> Iterator[Dict[str, Any]]:
