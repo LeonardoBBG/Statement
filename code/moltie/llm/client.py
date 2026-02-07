@@ -132,15 +132,27 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
             # 2) Repair call (single, decisive)
             try:
                 repair_prompt = (
-                    "You MUST output a SINGLE JSON object matching the required schema.\n"
-                    "NO prose. NO markdown. NO extra keys.\n"
-                    "If you cannot find verbatim anchors in the provided paras, set relevant=false and anchors=[].\n\n"
-                    "Now convert the following content into the required JSON schema.\n\n"
-                    "CONTENT:\n"
-                    f"{last_txt}\n\n"
-                    "REQUIRED OUTPUT: JSON ONLY.\n"
+                    "Your previous output was NOT valid JSON or did not match the required schema.\n"
+                    "TASK: Re-emit the result as STRICT VALID JSON ONLY.\n"
+                    "RULES:\n"
+                    "- Output ONE JSON object.\n"
+                    "- Use ONLY the allowed keys from the schema.\n"
+                    "- No extra keys. No prose. No markdown.\n"
+                    "- Ensure JSON is valid (escape quotes, no newlines inside strings unless escaped).\n\n"
+                    "REQUIRED VERDICT SCHEMA:\n"
+                    "{"
+                    '"atom_id":"string","doc_id":"string","relevant":true|false,"matched_X":["X1"],'
+                    '"precedent_score":0-100,"confidence":0-100,'
+                    '"anchors":[{"para_id":"p00001","quote":"verbatim","why_it_matters":"short"}],'
+                    '"use_mode":"support|contrast|harmful","proposition_winner":"claimant|respondent|mixed|unclear",'
+                    '"appeal_outcome":"allowed|dismissed|remitted|mixed|unknown","successful_party":"claimant|respondent|mixed|unclear",'
+                    '"distinguishers":["..."],"note":"ONE sentence","retrieval_score":null,"retrieval_method":"string|null"'
+                    "}\n\n"
+                    "BAD OUTPUT TO FIX:\n"
+                    + last_txt
                 )
-                txt2 = _ollama_generate(repair_prompt + prompt, cfg, force_json=True)
+
+                txt2 = _ollama_generate(repair_prompt, cfg, force_json=True)
                 obj2 = _extract_json_object(txt2)
                 VerdictValidator.validate(obj2)
                 return Verdict.from_dict(obj2)

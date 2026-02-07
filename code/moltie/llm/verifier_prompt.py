@@ -13,16 +13,20 @@ from ..schemas.run_config import RunConfig
 #   "paras": [{"para_id": "p00012", "text": "..."}, ...]   # already retrieved/filtered
 #   "retrieval": {"method": "...", "score": 12.3}         # optional
 # }
-
 _VERDICT_SCHEMA_TEXT = r"""
-Return STRICT JSON ONLY (no markdown, no commentary). Must be a single JSON object.
+Return STRICT JSON ONLY. No markdown. No commentary. One JSON object.
+
+ALLOWED KEYS ONLY (exactly these keys, no extras):
+atom_id, doc_id, relevant, matched_X, precedent_score, confidence,
+anchors, use_mode, proposition_winner, appeal_outcome, successful_party,
+distinguishers, note, retrieval_score, retrieval_method
 
 Schema:
 {
   "atom_id": "string",
   "doc_id": "string",
   "relevant": true|false,
-  "matched_X": ["X1","X2",...],
+  "matched_X": ["X1","X2","X3","X4","X5"],
   "precedent_score": 0-100,
   "confidence": 0-100,
   "anchors": [
@@ -39,12 +43,11 @@ Schema:
 }
 
 Hard rules:
-- anchors MUST use para_id values that exist in the provided paras list.
-- each anchor.quote MUST be a verbatim substring of the corresponding para text you were given.
-- If you cannot provide >= anchors_required strong anchors, set relevant=false and keep precedent_score <= 40.
-- Do NOT invent facts, para numbers, parties, outcomes, or quotes.
-- If the case is relevant but overall supports the respondent against the proposition, mark use_mode="harmful".
-- "contrast" means it states the proper standard / test but does not clearly condemn misconduct.
+- anchors[].para_id MUST be one of the provided para_id values.
+- anchors[].quote MUST be a verbatim substring of that paragraph text.
+- If you cannot provide >= anchors_required anchors, set relevant=false and anchors=[] and precedent_score<=40.
+- If relevant=false then use_mode MUST be "contrast".
+- Do NOT invent parties/outcomes: if not in evidence, use "unclear"/"unknown".
 """
 
 

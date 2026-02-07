@@ -1,57 +1,78 @@
-# Moltie Architecture — Quick Mental Model
+# Moltie Architecture — Quick Mental Model (v2)
 
-## `schemas/` — meaning & control
-Defines **what we are testing** and **how decisions look**.
+## `schemas/` — meaning, contracts, stop-conditions
+Defines **what we are testing** and **what outputs must look like**.
+
+- `Y_Spec`  
+  → rules/indicators extracted from WS (loose at first, tighten later)
 
 - `QueryObject / AtomQuery`  
-  → intent derived from WS → Y_JSON  
-  → what legal proposition is being tested
+  → runtime intent derived from Y_Spec  
+  → proposition + indicators + (later) expansions/synonyms
 
 - `Verdict`  
-  → result of LLM verification  
-  → support / contrast / harmful + anchors + confidence
+  → the only “decision object” the LLM is allowed to emit  
+  → relevant? support/contrast/harmful + anchors (para_id + verbatim quote) + confidence/score
 
 - `NegativeExit`  
-  → explicit “nothing to see here”  
-  → stops compute on irrelevant / non-converging cases
+  → explicit “nothing here / don’t waste compute” outcome  
+  → plateau, exhausted, no-anchors, mismatch, budget
 
-Schemas never touch raw text.
+Schemas don’t parse PDFs, don’t retrieve text, don’t run loops.
 
 ---
 
-## `corpus/` — perception & memory
-Turns **raw appeals** into **searchable evidence units**.
+## `corpus/` — perception & evidence preparation
+Turns **raw appeals** into **stable, addressable evidence units**.
 
 Responsibilities:
-1. Load full appeal texts (`loader.py`)
+1. Load documents + metadata (`loader.py`)
 2. Split into stable paragraphs/chunks with IDs (`chunker.py`)
-3. Surface *candidate* locations for a query (`index.py`)
-4. Return evidence packs (paras + IDs) to the agent
+3. Provide cheap recall (keyword/token/embeddings later) (`index.py`)
+4. Output *evidence packs*:
+   - `doc_id`
+   - `paras: [{para_id, text}, ...]`
+   - retrieval metadata (method/score)
 
-Corpus does **cheap recall only**.
-No reasoning. No legal judgment.
-
----
-
-## `agent/` — reasoning & iteration
-Controls the loop:
-- retrieve candidates from corpus
-- call LLM verifier
-- refine query
-- stop on convergence or NegativeExit
+Corpus = recall. No legal reasoning.
 
 ---
 
-## `llm/` — semantic verification
-Reads evidence packs and decides:
-- relevance
-- anchors
-- support vs harm
-- confidence
+## `llm/` — the barrister (single-shot reasoning)
+LLM is a callable component that:
+- reads an AtomQuery + evidence pack
+- returns STRICT JSON `Verdict`
+- must anchor every claim to **verbatim quotes** from provided paras
+- does **not** loop, does **not** choose docs, does **not** decide when to stop
+
+LLM = precision on provided evidence.
 
 ---
 
-## Key principle
-**Recall first (corpus), precision later (LLM).**  
-Corpus answers *where to look*.  
-Agent + LLM answer *what it means*.
+## `agent/` — the solicitor (orchestration & iteration)
+Controls the end-to-end interrogation loop:
+- `retrieve.py` → ask corpus for best paras for a given AtomQuery
+- `loop.py` → iterate retrieve → verify → evaluate objective function
+- `refine.py` → adjust query signal if weak (later: expansions, synonyms, negative cues)
+- stop conditions:
+  - accept when thresholds met (score/confidence/anchors)
+  - NegativeExit when diverging/plateau/exhausted
+
+Agent = state + strategy + stopping.
+
+---
+
+## `run.py` — wiring
+Binds everything:
+- Y_Spec → QueryObject
+- corpus → agent
+- agent → llm
+- outputs: Verdicts + NegativeExits + trace/audit logs
+
+---
+
+## Key principles
+1) **Recall first (corpus), precision later (LLM).**  
+2) **Evidence-first:** no anchors ⇒ no “relevant=true”.  
+3) **Agent owns the loop; LLM answers one question.**  
+4) **NegativeExit is a feature, not a failure.**
