@@ -48,6 +48,8 @@ Hard rules:
 - If you cannot provide >= anchors_required anchors, set relevant=false and anchors=[] and precedent_score<=40.
 - If relevant=false then use_mode MUST be "contrast".
 - Do NOT invent parties/outcomes: if not in evidence, use "unclear"/"unknown".
+- precedent_score and confidence MUST be integers in the range 0..100 (never negative). If unknown, use 0.
+- note MUST be a single short sentence (if nothing to add, use "No relevant information found.").
 """
 
 

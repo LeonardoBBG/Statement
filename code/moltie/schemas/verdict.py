@@ -9,6 +9,20 @@ Party = Literal["claimant", "respondent", "mixed", "unclear"]
 AppealOutcome = Literal["allowed", "dismissed", "remitted", "mixed", "unknown"]
 
 
+def _to_bool(x: Any) -> bool:
+    """
+    Robust bool coercion.
+    Avoids Python's bool("false")==True footgun.
+    """
+    if isinstance(x, bool):
+        return x
+    if isinstance(x, (int, float)):
+        return bool(x)
+    if isinstance(x, str):
+        return x.strip().lower() in ("true", "1", "yes")
+    return False
+
+
 @dataclass(frozen=True)
 class Anchor:
     """
@@ -43,8 +57,8 @@ class Verdict:
     relevant: bool
     matched_X: List[str] = field(default_factory=list)
 
-    precedent_score: int = 0            # 0-100 (objective-ish)
-    confidence: int = 0                 # 0-100 (model confidence, but constrained by rules)
+    precedent_score: int = 0            # 0-100
+    confidence: int = 0                 # 0-100
     anchors: List[Anchor] = field(default_factory=list)
 
     use_mode: UseMode = "contrast"
@@ -72,17 +86,17 @@ class Verdict:
         return Verdict(
             atom_id=str(d["atom_id"]).strip(),
             doc_id=str(d["doc_id"]).strip(),
-            relevant=bool(d["relevant"]),
-            matched_X=list(d.get("matched_X", [])),
-            precedent_score=int(d.get("precedent_score", 0)),
-            confidence=int(d.get("confidence", 0)),
+            relevant=_to_bool(d.get("relevant")),
+            matched_X=list(d.get("matched_X") or []),
+            precedent_score=int(d.get("precedent_score", 0) or 0),
+            confidence=int(d.get("confidence", 0) or 0),
             anchors=[Anchor.from_dict(x) for x in (d.get("anchors") or [])],
             use_mode=d.get("use_mode", "contrast"),
             proposition_winner=d.get("proposition_winner", "unclear"),
             appeal_outcome=d.get("appeal_outcome", "unknown"),
             successful_party=d.get("successful_party", "unclear"),
-            distinguishers=list(d.get("distinguishers", [])),
-            note=str(d.get("note", "")).strip(),
+            distinguishers=list(d.get("distinguishers") or []),
+            note=str(d.get("note", "") or "").strip(),
             retrieval_score=(float(d["retrieval_score"]) if d.get("retrieval_score") is not None else None),
             retrieval_method=(str(d["retrieval_method"]).strip() if d.get("retrieval_method") else None),
         )
@@ -97,6 +111,11 @@ class AnchorValidator:
     def validate(d: Dict[str, Any]) -> None:
         if not isinstance(d, dict):
             raise TypeError("Anchor must be a dict")
+
+        extra = set(d.keys()) - {"para_id", "quote", "why_it_matters"}
+        if extra:
+            raise ValueError(f"Anchor contains illegal keys: {sorted(extra)[:12]}")
+
         for k in ("para_id", "quote", "why_it_matters"):
             if k not in d:
                 raise ValueError(f"Anchor missing required field: {k}")
@@ -119,10 +138,33 @@ class VerdictValidator:
     PARTIES = {"claimant", "respondent", "mixed", "unclear"}
     OUTCOMES = {"allowed", "dismissed", "remitted", "mixed", "unknown"}
 
+    # enforce "allowed keys only" contract
+    ALLOWED_KEYS = {
+        "atom_id",
+        "doc_id",
+        "relevant",
+        "matched_X",
+        "precedent_score",
+        "confidence",
+        "anchors",
+        "use_mode",
+        "proposition_winner",
+        "appeal_outcome",
+        "successful_party",
+        "distinguishers",
+        "note",
+        "retrieval_score",
+        "retrieval_method",
+    }
+
     @staticmethod
     def validate(d: Dict[str, Any]) -> None:
         if not isinstance(d, dict):
             raise TypeError("Verdict must be a dict")
+
+        extra = set(d.keys()) - VerdictValidator.ALLOWED_KEYS
+        if extra:
+            raise ValueError(f"Verdict contains illegal keys: {sorted(extra)[:12]}")
 
         for k in ("atom_id", "doc_id", "relevant"):
             if k not in d:
@@ -132,6 +174,11 @@ class VerdictValidator:
             raise ValueError("Verdict.atom_id must be non-empty")
         if not str(d["doc_id"]).strip():
             raise ValueError("Verdict.doc_id must be non-empty")
+
+        # relevant must be coercible to bool
+        rel = d.get("relevant")
+        if not isinstance(rel, (bool, int, float, str)):
+            raise ValueError("Verdict.relevant must be bool/int/str")
 
         # matched_X
         mx = d.get("matched_X", [])
@@ -178,3 +225,35 @@ class VerdictValidator:
         dist = d.get("distinguishers", [])
         if dist is not None and not isinstance(dist, list):
             raise ValueError("Verdict.distinguishers must be a list")
+        for item in (dist or []):
+            if not isinstance(item, (str, int, float)):
+                raise ValueError("Verdict.distinguishers must be a list of strings")
+            if not str(item).strip():
+                raise ValueError("Verdict.distinguishers contains blank item")
+
+        # retrieval fields (optional)
+        rs = d.get("retrieval_score", None)
+        if rs is not None and not isinstance(rs, (int, float)):
+            raise ValueError("Verdict.retrieval_score must be number|null")
+
+        rm = d.get("retrieval_method", None)
+        if rm is not None and not isinstance(rm, str):
+            raise ValueError("Verdict.retrieval_method must be string|null")
+
+        # note is optional but must be a string if present
+        note = d.get("note", "")
+        if note is not None and not isinstance(note, str):
+            raise ValueError("Verdict.note must be a string")
+
+        # ----------------------------
+        # Cross-field hard rules (schema-level)
+        # ----------------------------
+        rel_bool = _to_bool(rel)
+        if not rel_bool:
+            if um != "contrast":
+                raise ValueError("If relevant=false then use_mode must be 'contrast'")
+            if anchors:
+                raise ValueError("If relevant=false then anchors must be []")
+            ps = int(d.get("precedent_score", 0) or 0)
+            if ps > 40:
+                raise ValueError("If relevant=false then precedent_score must be <= 40")

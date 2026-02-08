@@ -11,12 +11,12 @@ class RunConfig:
     k_verify_docs: int = 30
     k_chunks_per_doc: int = 12
 
-    # NEW: windowed retrieval params (coverage)
+    # windowed retrieval params (coverage)
     window_size: int = 24
     stride: int = 12
     top_windows: int = 3
     min_hits: int = 2
- 
+
     # loop control
     max_iters: int = 3
     eps_improve: int = 3           # min score improvement to count as progress
@@ -31,6 +31,10 @@ class RunConfig:
     # budget guards
     max_total_verifications: Optional[int] = None
 
+    # NEW: Y plumbing
+    y_path: str = ""                          # path to inferred Y json (required in practice)
+    y_dedup_out: Optional[str] = None         # where to save deduped-Y view (optional)
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
@@ -41,12 +45,27 @@ class RunConfig:
             k_candidates=int(d.get("k_candidates", 200)),
             k_verify_docs=int(d.get("k_verify_docs", 30)),
             k_chunks_per_doc=int(d.get("k_chunks_per_doc", 12)),
+
+            window_size=int(d.get("window_size", 24)),
+            stride=int(d.get("stride", 12)),
+            top_windows=int(d.get("top_windows", 3)),
+            min_hits=int(d.get("min_hits", 2)),
+
             max_iters=int(d.get("max_iters", 3)),
             eps_improve=int(d.get("eps_improve", 3)),
             plateau_p=int(d.get("plateau_p", 2)),
+
             thresh_score=int(d.get("thresh_score", 70)),
             thresh_conf=int(d.get("thresh_conf", 70)),
             anchors_required=int(d.get("anchors_required", 2)),
             min_iters_for_anchors=int(d.get("min_iters_for_anchors", 2)),
-            max_total_verifications=(int(d["max_total_verifications"]) if d.get("max_total_verifications") is not None else None),
+
+            max_total_verifications=(
+                int(d["max_total_verifications"])
+                if d.get("max_total_verifications") is not None
+                else None
+            ),
+
+            y_path=str(d.get("y_path", "")).strip(),
+            y_dedup_out=(str(d["y_dedup_out"]).strip() if d.get("y_dedup_out") else None),
         )
