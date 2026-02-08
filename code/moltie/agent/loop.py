@@ -212,7 +212,19 @@ def run_agent_on_one_doc(
                     print("[moltie.loop] QUOTE:", repr(q)[:300])
                     print("[moltie.loop] PARA :", repr(para_map[pid])[:300])
 
-            raise ValueError(f"Invalid anchors (non-verbatim or bad para_id): {bad[:3]}")
+            # Treat invalid anchors as a failed attempt (do not crash the run)
+            trace.append({
+                "iter": i,
+                "retrieval": rr.retrieval,
+                "verdict": verdict.to_dict(),
+                "error": {"type": "invalid_anchors", "details": bad[:6]},
+            })
+
+            print(f"[moltie.loop] INVALID_ANCHORS iter={i} bad={bad[:3]} -> continuing")
+
+            plateau += 1
+            atom = refine_query(atom, verdict, i).atom
+            continue
 
         trace.append({"iter": i, "retrieval": rr.retrieval, "verdict": verdict.to_dict()})
 
