@@ -61,14 +61,17 @@ def build_verifier_prompt(
     """
     Creates a single-shot verifier prompt to produce a Verdict.
     The agent controls looping; the LLM only decides on the provided evidence.
+
+    If cfg.harvest_mode=True, the LLM behaves like a junior "highlighter":
+      - it scans this small window only
+      - it extracts ONLY strong anchored hits
+      - it avoids guessing outcomes/winners
     """
     doc_id = str(evidence_pack.get("doc_id") or "").strip()
     doc_meta = evidence_pack.get("doc_meta") or {}
     paras = evidence_pack.get("paras") or []
     retrieval = evidence_pack.get("retrieval") or {}
 
-    # Keep payload tight (avoid sending huge docs)
-    # Paras should already be top-K from corpus retrieval.
     paras_compact = [
         {"para_id": str(p.get("para_id") or "").strip(), "text": str(p.get("text") or "").strip()}
         for p in paras
@@ -85,18 +88,24 @@ def build_verifier_prompt(
         "expansion_terms": atom.expansion_terms,
     }
 
-    # The model needs explicit instruction: it only sees these paras; anchors must come from them.
+    harvest_mode = bool(getattr(cfg, "harvest_mode", False))
+
+    # In harvest mode we intentionally require fewer anchors (we're scanning windows),
+    # and we cap how many anchors we want back to keep memory "strong only".
+    anchors_required = int(getattr(cfg, "harvest_min_anchors", cfg.anchors_required if hasattr(cfg, "anchors_required") else 1)) if harvest_mode else cfg.anchors_required
+    anchors_max = 2 if harvest_mode else 4
+
     payload = {
         "atom": atom_compact,
         "doc_id": doc_id,
         "doc_meta": doc_meta,
-        "anchors_required": cfg.anchors_required,
+        "anchors_required": anchors_required,
+        "anchors_max": anchors_max,
         "paras": paras_compact,
         "retrieval": retrieval,
+        "mode": "harvest" if harvest_mode else "verify",
     }
 
-    # Prefilled template strongly reduces "echo the input" / "return matched_paras" behavior.
-    # Keep keys exactly as per schema; include retrieval fields explicitly.
     verdict_template = {
         "atom_id": atom.atom_id,
         "doc_id": doc_id,
@@ -115,14 +124,28 @@ def build_verifier_prompt(
         "retrieval_method": None,
     }
 
+    harvest_instructions = ""
+    if harvest_mode:
+        harvest_instructions = (
+            "\nHARVEST MODE (junior highlighter):\n"
+            "- You are scanning a SMALL window of the document, not the whole judgment.\n"
+            "- Do NOT attempt to decide the entire case.\n"
+            "- Mark relevant=true ONLY if you can extract strong, clearly supportive anchored quotes.\n"
+            f"- Return at most anchors_max={anchors_max} anchors. Prefer the strongest 1–2.\n"
+            "- If the signal is weak/ambiguous, set relevant=false.\n"
+            "- IMPORTANT: Do NOT guess appeal outcome or winners from partial text; use 'unknown'/'unclear' unless explicitly stated in these paras.\n"
+        )
+
     return (
         "SYSTEM / OUTPUT CONTRACT (NON-NEGOTIABLE):\n"
         "1) Output ONE JSON object ONLY that matches the schema below.\n"
-        "2) Use ONLY the allowed keys. If you output any other key (e.g., matched_paras, paras, input, analysis), it is WRONG.\n"
-        "3) Do NOT echo the Input JSON. Do NOT return the evidence paragraphs. Do NOT return matched paragraphs.\n"
+        "2) Use ONLY the allowed keys. If you output any other key, it is WRONG.\n"
+        "3) Do NOT echo the Input JSON. Do NOT return the evidence paragraphs.\n"
         "4) Every anchor.quote must be verbatim from the provided paras, and anchor.para_id must be one of the provided para_id.\n"
-        "5) If you cannot meet anchors_required, set relevant=false, anchors=[], precedent_score<=40, and use_mode=\"contrast\".\n\n"
-        "You are a legal precedent verifier.\n"
+        f"5) If you cannot meet anchors_required={anchors_required}, set relevant=false, anchors=[], precedent_score<=40, and use_mode=\"contrast\".\n"
+        f"6) If you set relevant=true, you MUST return 1..{anchors_max} anchors (never 0).\n"
+        + harvest_instructions +
+        "\nYou are a legal precedent verifier.\n"
         "Your job: decide whether the provided appeal evidence supports the given proposition.\n"
         "You MUST follow the schema and hard rules.\n\n"
         f"{_VERDICT_SCHEMA_TEXT}\n\n"

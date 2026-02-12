@@ -35,6 +35,17 @@ class RunConfig:
     y_path: str = ""                          # path to inferred Y json (required in practice)
     y_dedup_out: Optional[str] = None         # where to save deduped-Y view (optional)
 
+    # --- harvest mode (junior sweep) ---
+    harvest_mode: bool = False
+
+    harvest_min_score: int = 60
+    harvest_min_conf: int = 70
+    harvest_min_anchors: int = 1
+
+    memory_max_items: int = 30
+
+
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
@@ -68,4 +79,11 @@ class RunConfig:
 
             y_path=str(d.get("y_path", "")).strip(),
             y_dedup_out=(str(d["y_dedup_out"]).strip() if d.get("y_dedup_out") else None),
+
+            harvest_mode=bool(d.get("harvest_mode", False)),
+            harvest_min_score=int(d.get("harvest_min_score", 60)),
+            harvest_min_conf=int(d.get("harvest_min_conf", 70)),
+            harvest_min_anchors=int(d.get("harvest_min_anchors", 1)),
+            memory_max_items=int(d.get("memory_max_items", 30)),
+
         )
