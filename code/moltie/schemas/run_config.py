@@ -6,6 +6,11 @@ from typing import Any, Dict, Optional
 
 @dataclass(frozen=True)
 class RunConfig:
+    # ----------------
+    # global behavior
+    # ----------------
+    debug: bool = False
+
     # retrieval
     k_candidates: int = 200
     k_verify_docs: int = 30
@@ -37,14 +42,11 @@ class RunConfig:
 
     # --- harvest mode (junior sweep) ---
     harvest_mode: bool = False
-
     harvest_min_score: int = 60
     harvest_min_conf: int = 70
     harvest_min_anchors: int = 1
 
     memory_max_items: int = 30
-
-
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -53,6 +55,8 @@ class RunConfig:
     def from_dict(d: Dict[str, Any]) -> "RunConfig":
         # soft parse: missing keys fall back to defaults
         return RunConfig(
+            debug=bool(d.get("debug", False)),
+
             k_candidates=int(d.get("k_candidates", 200)),
             k_verify_docs=int(d.get("k_verify_docs", 30)),
             k_chunks_per_doc=int(d.get("k_chunks_per_doc", 12)),
@@ -85,5 +89,4 @@ class RunConfig:
             harvest_min_conf=int(d.get("harvest_min_conf", 70)),
             harvest_min_anchors=int(d.get("harvest_min_anchors", 1)),
             memory_max_items=int(d.get("memory_max_items", 30)),
-
         )

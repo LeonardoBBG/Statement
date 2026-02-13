@@ -155,40 +155,161 @@ def _clamp_int_0_100(x: Any, default: int = 0) -> int:
 
 def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Enforce hard numeric ranges + cross-field semantics to prevent sentinel poisoning.
+    Defensive normalizer for Verdict JSON objects before validation.
+
+    Goals:
+    - Keep EXACT allowed keys at root (caller enforces allowed keys separately).
+    - Coerce types (ints, bools, lists, strings).
+    - Normalize enums (use_mode, outcomes, winners) so Validator won't hard-fail.
+    - Ensure anchors are well-formed dicts with required fields (para_id, quote, why_it_matters).
     """
-    obj["precedent_score"] = _clamp_int_0_100(obj.get("precedent_score"), default=0)
-    obj["confidence"] = _clamp_int_0_100(obj.get("confidence"), default=0)
 
-    # relevant must be bool-ish
-    rel = obj.get("relevant")
-    if isinstance(rel, bool):
-        pass
-    elif isinstance(rel, (int, float)):
-        obj["relevant"] = bool(rel)
-    elif isinstance(rel, str):
-        obj["relevant"] = rel.strip().lower() in ("true", "1", "yes")
+    # ---------- helpers ----------
+    def _as_str(x: Any) -> str:
+        return str(x) if x is not None else ""
+
+    def _clean_str(x: Any) -> str:
+        return _as_str(x).strip()
+
+    def _clamp_int(x: Any, lo: int = 0, hi: int = 100, default: int = 0) -> int:
+        try:
+            v = int(x)
+        except Exception:
+            return default
+        if v < lo:
+            return lo
+        if v > hi:
+            return hi
+        return v
+
+    def _as_bool(x: Any) -> bool:
+        # accept bool, 0/1, "true"/"false"
+        if isinstance(x, bool):
+            return x
+        if isinstance(x, (int, float)):
+            return bool(x)
+        if isinstance(x, str):
+            s = x.strip().lower()
+            if s in {"true", "t", "yes", "y", "1"}:
+                return True
+            if s in {"false", "f", "no", "n", "0", ""}:
+                return False
+        return False
+
+    # ---------- core fields ----------
+    obj["atom_id"] = _clean_str(obj.get("atom_id"))
+    obj["doc_id"] = _clean_str(obj.get("doc_id"))
+
+    obj["relevant"] = _as_bool(obj.get("relevant", False))
+
+    obj["precedent_score"] = _clamp_int(obj.get("precedent_score", 0), 0, 100, 0)
+    obj["confidence"] = _clamp_int(obj.get("confidence", 0), 0, 100, 0)
+
+    # matched_X: list[str]
+    mx = obj.get("matched_X", [])
+    if not isinstance(mx, list):
+        mx = []
+    mx2: List[str] = []
+    for x in mx:
+        s = _clean_str(x)
+        if s:
+            mx2.append(s)
+    obj["matched_X"] = mx2
+
+    # distinguishers: list[str]
+    dist = obj.get("distinguishers", [])
+    if not isinstance(dist, list):
+        dist = []
+    dist2: List[str] = []
+    for x in dist:
+        s = _clean_str(x)
+        if s:
+            dist2.append(s)
+    obj["distinguishers"] = dist2
+
+    # note: single sentence-ish; keep non-empty
+    note = _clean_str(obj.get("note", ""))
+    obj["note"] = note if note else "No relevant information found."
+
+    # retrieval fields
+    rm = obj.get("retrieval_method", None)
+    obj["retrieval_method"] = None if rm is None else (_clean_str(rm) or None)
+
+    rs = obj.get("retrieval_score", None)
+    if rs is None:
+        obj["retrieval_score"] = None
     else:
+        try:
+            obj["retrieval_score"] = float(rs)
+        except Exception:
+            obj["retrieval_score"] = None
+
+    # ---------- anchors ----------
+    anchors = obj.get("anchors", [])
+    if not isinstance(anchors, list):
+        anchors = []
+
+    anchors_out: List[Dict[str, str]] = []
+    for a in anchors:
+        if not isinstance(a, dict):
+            continue
+        pid = _clean_str(a.get("para_id"))
+        quote = _as_str(a.get("quote"))
+        why = _clean_str(a.get("why_it_matters"))
+        # keep quote verbatim-ish (no stripping internal whitespace), but remove leading/trailing
+        quote = quote.strip() if isinstance(quote, str) else ""
+
+        if not pid or not quote:
+            continue
+        if not why:
+            why = "Relevant passage."
+
+        anchors_out.append({"para_id": pid, "quote": quote, "why_it_matters": why})
+
+    obj["anchors"] = anchors_out
+
+    # ---------- enum normalization (CRITICAL) ----------
+    rel = bool(obj.get("relevant", False))
+
+    # use_mode
+    um = _clean_str(obj.get("use_mode", "")).lower()
+    if um not in {"support", "contrast", "harmful"}:
+        um = "support" if rel else "contrast"
+    # enforce: if relevant=false => contrast
+    if not rel:
+        um = "contrast"
+    obj["use_mode"] = um
+
+    # proposition_winner
+    pw = _clean_str(obj.get("proposition_winner", "")).lower()
+    if pw not in {"claimant", "respondent", "mixed", "unclear"}:
+        pw = "unclear"
+    obj["proposition_winner"] = pw
+
+    # appeal_outcome
+    ao = _clean_str(obj.get("appeal_outcome", "")).lower()
+    if ao not in {"allowed", "dismissed", "remitted", "mixed", "unknown"}:
+        ao = "unknown"
+    obj["appeal_outcome"] = ao
+
+    # successful_party
+    sp = _clean_str(obj.get("successful_party", "")).lower()
+    if sp not in {"claimant", "respondent", "mixed", "unclear"}:
+        sp = "unclear"
+    obj["successful_party"] = sp
+
+    # ---------- enforce low-signal rule (defensive) ----------
+    # If no anchors after sanitization, force relevant=false and cap score.
+    if len(obj["anchors"]) == 0:
         obj["relevant"] = False
-
-    # anchors must be list
-    if not isinstance(obj.get("anchors"), list):
-        obj["anchors"] = []
-
-    # enforce hard rules when relevant is false
-    if obj["relevant"] is False:
         obj["use_mode"] = "contrast"
-        obj["anchors"] = []
-        if obj["precedent_score"] > 40:
-            obj["precedent_score"] = 40
+        obj["precedent_score"] = min(obj["precedent_score"], 40)
 
-    # ensure note is a short sentence fallback (helps downstream)
-    note = str(obj.get("note") or "").strip()
-    if not note:
-        obj["note"] = "No relevant information found."
+    # If relevant=false, also cap score defensively.
+    if not obj["relevant"]:
+        obj["precedent_score"] = min(obj["precedent_score"], 40)
 
     return obj
-
 
 def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
     """

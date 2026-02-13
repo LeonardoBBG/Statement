@@ -26,7 +26,7 @@ Schema:
   "atom_id": "string",
   "doc_id": "string",
   "relevant": true|false,
-  "matched_X": ["X1","X2","X3","X4","X5"],
+  "matched_X": ["X1","X2","X3","X4","X5","X6"],
   "precedent_score": 0-100,
   "confidence": 0-100,
   "anchors": [
@@ -42,15 +42,19 @@ Schema:
   "retrieval_method": "string|null"
 }
 
-Hard rules:
+Hard rules (NON-NEGOTIABLE):
 - anchors[].para_id MUST be one of the provided para_id values.
 - anchors[].quote MUST be a verbatim substring of that paragraph text.
+- If relevant=true then anchors MUST be non-empty and MUST directly support the matched_X you selected.
 - If you cannot provide >= anchors_required anchors, set relevant=false and anchors=[] and precedent_score<=40.
-- If relevant=false then use_mode MUST be "contrast".
-- Do NOT invent parties/outcomes: if not in evidence, use "unclear"/"unknown".
+- use_mode MUST be one of: support, contrast, harmful (never "unclear").
+- If relevant=true then use_mode MUST be "support". If relevant=false then use_mode MUST be "contrast".
+- Do NOT invent parties/outcomes: if not explicitly stated in the provided paras, use "unclear"/"unknown".
 - precedent_score and confidence MUST be integers in the range 0..100 (never negative). If unknown, use 0.
 - note MUST be a single short sentence (if nothing to add, use "No relevant information found.").
+- IMPORTANT SCOPE GUARD: Do NOT treat remedy/compensation/medical causation burden (e.g., ill-health, injury, loss, compensation, Polkey, contributory fault, "dismissal caused X") as support for X1–X3 unless the AtomQuery explicitly targets REMEDY. If the passage is about remedy/causation, set relevant=false.
 """
+
 
 
 def build_verifier_prompt(
@@ -130,10 +134,11 @@ def build_verifier_prompt(
             "\nHARVEST MODE (junior highlighter):\n"
             "- You are scanning a SMALL window of the document, not the whole judgment.\n"
             "- Do NOT attempt to decide the entire case.\n"
-            "- Mark relevant=true ONLY if you can extract strong, clearly supportive anchored quotes.\n"
+            "- Your job is to highlight ONLY strong, clearly relevant passages that match ONE OR MORE X tests.\n"
             f"- Return at most anchors_max={anchors_max} anchors. Prefer the strongest 1–2.\n"
-            "- If the signal is weak/ambiguous, set relevant=false.\n"
-            "- IMPORTANT: Do NOT guess appeal outcome or winners from partial text; use 'unknown'/'unclear' unless explicitly stated in these paras.\n"
+            "- Mark relevant=true ONLY if you can provide anchored quotes that directly support the matched_X you select.\n"
+            "- If the signal is weak/ambiguous OR it is about REMEDY/COMPENSATION/CAUSATION (ill-health, injury, loss, compensation, Polkey), set relevant=false.\n"
+            "- Outcome/winner fields: use 'unknown'/'unclear' unless explicitly stated in these paras.\n"
         )
 
     return (

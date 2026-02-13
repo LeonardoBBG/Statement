@@ -28,6 +28,72 @@ _WS = re.compile(r"\s+")
 _ZW = re.compile(r"[\u200b\u200c\u200d\ufeff]")  # zero-width chars
 _DASH = re.compile(r"[\u2010\u2011\u2012\u2013\u2014\u2212]")  # hyphen/dash variants
 
+_HARD_JUNK_SIGNALS = (
+    "neutral citation",
+    "royal courts of justice",
+    "in the supreme court of judicature",
+    "court of appeal",
+    "civil division",
+    "on appeal from",
+    "employment appeal tribunal",
+)
+
+_SOFT_JUNK_SIGNALS = (
+    "before:",
+    "between:",
+    "hearing date",
+    "transcript",
+)
+
+def _is_junk_para(text: str) -> bool:
+    if not text:
+        return True
+
+    s_raw = text
+    s = _norm(text).lower()
+
+    # compute density FIRST (used by hard + soft kill)
+    letters = sum(ch.isalpha() for ch in s_raw)
+    letter_ratio = letters / max(1, len(s_raw))
+
+    # --- Hard kill: only if header-like ---
+    if any(sig in s for sig in _HARD_JUNK_SIGNALS):
+        if len(s_raw) < 400 or letter_ratio < 0.55:
+            return True
+
+    # --- Soft kill: docket-format paragraphs (low semantic density) ---
+    if len(s_raw) >= 160 and letter_ratio < 0.42 and len(s_raw) < 3000:
+        return True
+
+    # "Before/Between" blocks are usually parties/judges; kill if not huge
+    if any(sig in s for sig in _SOFT_JUNK_SIGNALS) and len(s_raw) < 2200:
+        return True
+
+    return False
+
+def _filter_front_matter(paras, min_keep=4, debug=False, head_limit=40):
+    if not paras:
+        return paras
+
+    before = len(paras)
+
+    head = paras[:head_limit]
+    tail = paras[head_limit:]  # NEVER filter the tail
+
+    head_f = [p for p in head if not _is_junk_para((p.get("text") or ""))]
+
+    filtered = head_f + tail
+
+    # guardrail: don’t let it nuke the doc
+    if len(filtered) < min_keep:
+        filtered = paras
+
+    if debug:
+        print(
+            f"[moltie.debug] front_matter_filter: before={before} after={len(filtered)} "
+            f"dropped={before-len(filtered)} head_limit={head_limit}"
+        )
+    return filtered
 
 def _norm(s: str) -> str:
     if not s:
@@ -55,7 +121,6 @@ def _quote_ok(quote: str, text: str) -> bool:
         return True
 
     # 3) token-in-order fallback (still evidence-based)
-    # Require enough content to avoid accepting junk.
     toks = [t for t in re.findall(r"[A-Za-z0-9]{3,}", nq.lower())]
     if len(toks) < 5:
         return False
@@ -126,61 +191,186 @@ def _is_strong_for_harvest(v: Verdict, run_cfg: RunConfig) -> bool:
     )
 
 
+def _maybe_rechunk_single_blob_paras(
+    paras: List[Dict[str, str]],
+    *,
+    min_len: int = 40,
+    max_para_chars: int = 1800,
+    blob_threshold: int = 5000,
+) -> List[Dict[str, str]]:
+    """
+    E2E safety guard:
+    If upstream PDF extraction collapsed everything into ONE giant paragraph,
+    split it into multiple paras so anchors can reference valid para_ids.
+
+    This does NOT depend on pdfplumber; it just restructures already-extracted text.
+    """
+    if not paras or len(paras) != 1:
+        return paras
+
+    text = (paras[0].get("text") or "").strip()
+    if len(text) < blob_threshold:
+        return paras  # not a huge blob; leave it
+
+    # Normalize line endings
+    t = text.replace("\r\n", "\n").replace("\r", "\n")
+
+    # Try paragraph split on blank lines first
+    parts = [p.strip() for p in t.split("\n\n") if p.strip()]
+
+    # If blank lines are missing, fall back to line grouping
+    if len(parts) <= 3:
+        lines = [ln.strip() for ln in t.split("\n") if ln.strip()]
+        parts = []
+        buf: List[str] = []
+        size = 0
+        for ln in lines:
+            if size + len(ln) + 1 > max_para_chars and buf:
+                parts.append(" ".join(buf).strip())
+                buf = [ln]
+                size = len(ln)
+            else:
+                buf.append(ln)
+                size += len(ln) + 1
+        if buf:
+            parts.append(" ".join(buf).strip())
+
+    # Filter tiny junk + cap long paras
+    out: List[str] = []
+    for p in parts:
+        if len(p) < min_len:
+            continue
+        if len(p) <= max_para_chars:
+            out.append(p)
+        else:
+            # Chunk long paras conservatively by sentences-ish
+            chunk: List[str] = []
+            cur = 0
+            for sent in p.split(". "):
+                s = sent if sent.endswith(".") else sent + "."
+                if cur + len(s) + 1 > max_para_chars and chunk:
+                    out.append(" ".join(chunk).strip())
+                    chunk = [s]
+                    cur = len(s)
+                else:
+                    chunk.append(s)
+                    cur += len(s) + 1
+            if chunk:
+                out.append(" ".join(chunk).strip())
+
+    return [{"para_id": f"p{i:05d}", "text": p} for i, p in enumerate(out, start=1)]
+
+
 def run_harvest_then_reason_on_one_doc(
     doc_id: str,
     paras: List[Dict[str, str]],
-    atom: AtomQuery,
-    run_cfg: RunConfig,
-    llm_cfg: LLMClientConfig,
-) -> LoopResult:
-    """
-    Junior-mode:
-      PASS-1 (Harvest): deterministic sweep over the whole doc in windows; store only strong anchored hits.
-      PASS-2 (Reason): run one synthesis call over the harvested evidence (no full-doc reread).
-    """
+    atom: "AtomQuery",
+    run_cfg: "RunConfig",
+    llm_cfg: "LLMClientConfig",
+) -> "LoopResult":
+
     assert isinstance(doc_id, str) and doc_id.strip(), "doc_id must be non-empty"
     assert isinstance(paras, list) and len(paras) > 0, "paras must be a non-empty list"
-    assert getattr(atom, "atom_id", "").strip(), "AtomQuery.atom_id is empty (fix AtomQuery construction)"
+    assert getattr(atom, "atom_id", "").strip(), "AtomQuery.atom_id is empty"
+
+    # -----------------------------
+    # SINGLE SOURCE OF TRUTH
+    # -----------------------------
+    debug = run_cfg.debug
+    # -----------------------------
+
+    paras = _maybe_rechunk_single_blob_paras(paras)
+
+    print(f"[moltie.debug] raw_paras_before_filter={len(paras)}")
+    if paras:
+        print(f"[moltie.debug] raw_para0_len={len((paras[0].get('text') or ''))}")
+
+
+    # Use the SAME debug variable
+    paras = _filter_front_matter(paras, min_keep=4, debug=debug)
+
+    print(f"[moltie.debug] paras_after_front_matter_filter={len(paras)}")
+
 
     trace: List[Dict[str, Any]] = []
-    print(f"[moltie.loop] HARVEST start doc_id={doc_id!r} atom_id={atom.atom_id!r} n_paras={len(paras)}")
 
-    window_size = int(getattr(run_cfg, "window_size", 24))
-    stride = int(getattr(run_cfg, "stride", 12))
-    memory_max_items = int(getattr(run_cfg, "memory_max_items", 30))
+    if debug:
+        print(f"[moltie.loop] HARVEST start doc_id={doc_id!r} atom_id={atom.atom_id!r} n_paras={len(paras)}")
 
-    # full map (used only for ordering / sanity; we still enforce anchors must be in the evidence pack sent)
+    if debug:
+        print("[moltie.debug] raw paras:", len(paras), "sample lens:", [len((p.get("text") or "")) for p in paras[:3]])
+
+
+    window_size = max(1, int(run_cfg.window_size))
+    stride = max(1, int(run_cfg.stride))
+    memory_max_items = int(run_cfg.memory_max_items)
+
     full_para_ids_in_order = [p["para_id"] for p in paras]
     full_para_map = {p["para_id"]: p["text"] for p in paras}
 
-    harvested_verdicts: List[Verdict] = []
+    harvested_verdicts: List["Verdict"] = []
     harvested_para_ids: Set[str] = set()
     harvested_windows: List[Dict[str, Any]] = []
 
-    # PASS-1: sweep
     n = len(paras)
-    for start in range(0, n, stride):
+
+    if n <= window_size:
+        starts = [0]
+    else:
+        starts = list(range(0, n, stride))
+        last_start = max(0, n - window_size)
+        if starts[-1] != last_start:
+            starts.append(last_start)
+        starts = sorted(set(starts))
+
+    total_windows = len(starts)
+
+    if debug:
+        total_chars = sum(len(p.get("text") or "") for p in paras)
+        print(
+            f"[moltie.debug] doc totals: n_paras={n} total_chars={total_chars} "
+            f"window_size={window_size} stride={stride} windows={total_windows}"
+        )
+
+    for start in starts:
         end = min(n, start + window_size)
         if end <= start:
             continue
 
         pack = paras[start:end]
+
         evidence_pack = {
             "doc_id": doc_id,
             "doc_meta": {},
             "paras": pack,
-            "retrieval": {"method": "sweep", "start": start, "end": end, "window_size": window_size, "stride": stride},
+            "retrieval": {
+                "method": "sweep",
+                "start": start,
+                "end": end,
+                "window_size": window_size,
+                "stride": stride,
+            },
         }
-        prompt = build_verifier_prompt(atom=atom, evidence_pack=evidence_pack, cfg=run_cfg)
 
-        if atom.atom_id not in prompt:
-            print(f"[moltie.loop] HARVEST WARN atom_id not found in prompt prompt_hash={_h(prompt)}")
+        prompt = build_verifier_prompt(atom=atom, evidence_pack=evidence_pack, cfg=run_cfg)
 
         verdict = verify_with_ollama(prompt, llm_cfg)
 
-        # anchor verification against THIS pack (strict: no unseen paras allowed)
         pack_para_map = {p["para_id"]: p["text"] for p in pack}
         ok, bad = _anchors_valid(verdict, pack_para_map)
+
+        strong = _is_strong_for_harvest(verdict, run_cfg)
+
+        if debug:
+            anchors = getattr(verdict, "anchors", None)
+            n_anchors = 0 if not anchors else len(anchors)
+            print(
+                f"[moltie.debug] win={start}:{end} "
+                f"relevant={verdict.relevant} "
+                f"precedent_score={verdict.precedent_score} "
+                f"confidence={verdict.confidence} "
+                f"anchors={n_anchors} anchors_ok={ok} strong={strong}"
+            )
 
         trace.append(
             {
@@ -194,89 +384,73 @@ def run_harvest_then_reason_on_one_doc(
         )
 
         if not ok:
-            # In harvest mode we do NOT refine/loop on failures; we just move on.
             continue
 
-        if _is_strong_for_harvest(verdict, run_cfg):
+        if strong:
             harvested_verdicts.append(verdict)
             harvested_windows.append({"start": start, "end": end})
-            # collect all paras referenced by anchors
-            for a in (getattr(verdict, "anchors", []) or []):
+            for a in verdict.anchors or []:
                 pid = a.para_id if hasattr(a, "para_id") else a.get("para_id")
                 if pid:
                     harvested_para_ids.add(pid)
 
     if not harvested_verdicts or not harvested_para_ids:
-        print(f"[moltie.loop] HARVEST EXIT no_signal harvested_verdicts={len(harvested_verdicts)} harvested_para_ids={len(harvested_para_ids)}")
+        if debug:
+            print(
+                f"[moltie.loop] HARVEST EXIT no_signal "
+                f"harvested_verdicts={len(harvested_verdicts)} "
+                f"harvested_para_ids={len(harvested_para_ids)}"
+            )
+
         nx = NegativeExit.from_best(
             atom_id=atom.atom_id,
             reason="no_signal",
             best=None,
-            note=f"No strong anchored fragments found in sweep; windows_scanned={max(1, (n + stride - 1)//max(1,stride))}",
+            note=(
+                f"No strong anchored fragments found in sweep; "
+                f"n_paras={n} window_size={window_size} stride={stride} windows_scanned={total_windows}"
+            ),
+
         )
+
         return LoopResult(verdict=None, negative_exit=nx, iters=1, trace=trace)
 
-    # Build compact evidence pack for PASS-2, preserving original order and capping size.
-    harvested_paras_ordered: List[Dict[str, str]] = []
-    for pid in full_para_ids_in_order:
-        if pid in harvested_para_ids:
-            harvested_paras_ordered.append({"para_id": pid, "text": full_para_map[pid]})
+    harvested_paras_ordered = [
+        {"para_id": pid, "text": full_para_map[pid]}
+        for pid in full_para_ids_in_order
+        if pid in harvested_para_ids
+    ][:memory_max_items]
 
-    # cap to avoid huge prompts (still ordered)
-    harvested_paras_ordered = harvested_paras_ordered[: max(1, memory_max_items)]
-
-    # PASS-2: reason over harvested memory
     evidence_pack2 = {
         "doc_id": doc_id,
         "doc_meta": {},
         "paras": harvested_paras_ordered,
-        "retrieval": {
-            "method": "harvest_memory",
-            "harvested_windows": harvested_windows[:50],
-            "harvested_para_ids": len(harvested_para_ids),
-            "memory_items": len(harvested_paras_ordered),
-            "memory_cap": memory_max_items,
-        },
+        "retrieval": {"method": "harvest_memory"},
     }
 
     prompt2 = build_verifier_prompt(atom=atom, evidence_pack=evidence_pack2, cfg=run_cfg)
     verdict2 = verify_with_ollama(prompt2, llm_cfg)
 
-    # Final anchor verification (strictly within memory pack)
-    mem_para_map = {p["para_id"]: p["text"] for p in evidence_pack2["paras"]}
+    mem_para_map = {p["para_id"]: p["text"] for p in harvested_paras_ordered}
     ok2, bad2 = _anchors_valid(verdict2, mem_para_map)
+
+    if debug:
+        print(
+            f"[moltie.debug] PASS-2 verdict: relevant={verdict2.relevant} "
+            f"precedent_score={verdict2.precedent_score} "
+            f"confidence={verdict2.confidence} "
+            f"anchors={len(verdict2.anchors or [])} anchors_ok={ok2}"
+        )
+
     if not ok2:
-        # If synthesis produced invalid anchors, degrade safely to best harvested verdict.
-        # Choose by precedent_score then confidence.
         best = sorted(
             harvested_verdicts,
-            key=lambda v: (_nn_int(getattr(v, "precedent_score", 0)), _nn_int(getattr(v, "confidence", 0))),
+            key=lambda v: (_nn_int(v.precedent_score), _nn_int(v.confidence)),
             reverse=True,
         )[0]
-        trace.append(
-            {
-                "phase": "reason",
-                "error": {"type": "invalid_anchors", "details": bad2[:6]},
-                "fallback": {"best_harvested": best.to_dict()},
-            }
-        )
-        print(f"[moltie.loop] HARVEST WARN synthesis invalid anchors -> fallback to best harvested")
+
         return LoopResult(verdict=best, negative_exit=None, iters=1, trace=trace)
 
-    trace.append(
-        {
-            "phase": "reason",
-            "harvested_verdicts": len(harvested_verdicts),
-            "harvested_para_ids": len(harvested_para_ids),
-            "memory_items": len(harvested_paras_ordered),
-            "verdict": verdict2.to_dict(),
-        }
-    )
-
-    print(
-        f"[moltie.loop] HARVEST DONE harvested_verdicts={len(harvested_verdicts)} "
-        f"harvested_para_ids={len(harvested_para_ids)} memory_items={len(harvested_paras_ordered)}"
-    )
     return LoopResult(verdict=verdict2, negative_exit=None, iters=1, trace=trace)
 
 
@@ -291,6 +465,9 @@ def run_agent_on_one_doc(
     assert isinstance(doc_id, str) and doc_id.strip(), "doc_id must be non-empty"
     assert isinstance(paras, list) and len(paras) > 0, "paras must be a non-empty list"
     assert getattr(atom, "atom_id", "").strip(), "AtomQuery.atom_id is empty (fix AtomQuery construction)"
+
+    # --- E2E GUARD: fix the 'n_paras=1 huge blob' PDF extraction failure mode ---
+    paras = _maybe_rechunk_single_blob_paras(paras)
 
     # --- NEW: harvest mode shortcut (keeps old behavior intact) ---
     if bool(getattr(run_cfg, "harvest_mode", False)):
@@ -311,7 +488,16 @@ def run_agent_on_one_doc(
     top_windows = getattr(run_cfg, "top_windows", 3)
     min_hits = getattr(run_cfg, "min_hits", 2)
 
-    est_total_windows = max(1, (len(paras) + stride - 1) // max(1, stride))
+    # include the final window start (n - window_size) even if stride doesn't land on it
+    n = len(paras)
+    starts = list(range(0, max(1, n), max(1, stride)))
+    if n > window_size:
+        last_start = max(0, n - window_size)
+        if last_start not in starts:
+            starts.append(last_start)
+    starts = sorted(set(starts))
+    est_total_windows = max(1, len(starts))
+
 
     for i in range(1, run_cfg.max_iters + 1):
         rr = retrieve_windowed_evidence(
@@ -343,15 +529,7 @@ def run_agent_on_one_doc(
         if atom.atom_id not in prompt:
             print(f"[moltie.loop] iter={i} WARN atom_id not found in prompt prompt_hash={_h(prompt)}")
 
-        try:
-            verdict = verify_with_ollama(prompt, llm_cfg)
-        except Exception as e:
-            print(
-                "[moltie.loop] LLM_FAIL "
-                f"iter={i} doc_id={doc_id!r} atom_id={atom.atom_id!r} "
-                f"n_rr_paras={n_rr} prompt_hash={_h(prompt)} err={type(e).__name__}: {e}"
-            )
-            raise
+        verdict = verify_with_ollama(prompt, llm_cfg)
 
         if not getattr(verdict, "atom_id", "").strip():
             print(f"[moltie.loop] iter={i} BAD_VERDICT missing atom_id prompt_hash={_h(prompt)} verdict={verdict.to_dict()}")
@@ -362,19 +540,6 @@ def run_agent_on_one_doc(
         ok, bad = _anchors_valid(verdict, para_map)
 
         if not ok:
-            for kind, pid in bad[:2]:
-                if kind == "non_verbatim" and pid in para_map:
-                    q = next(
-                        (
-                            a.quote if hasattr(a, "quote") else a.get("quote")
-                            for a in verdict.anchors
-                            if (a.para_id if hasattr(a, "para_id") else a.get("para_id")) == pid
-                        ),
-                        "",
-                    )
-                    print("[moltie.loop] QUOTE:", repr(q)[:300])
-                    print("[moltie.loop] PARA :", repr(para_map[pid])[:300])
-
             trace.append(
                 {
                     "iter": i,
@@ -383,7 +548,6 @@ def run_agent_on_one_doc(
                     "error": {"type": "invalid_anchors", "details": bad[:6]},
                 }
             )
-
             print(f"[moltie.loop] INVALID_ANCHORS iter={i} bad={bad[:3]} -> continuing")
 
             plateau += 1
@@ -410,17 +574,21 @@ def run_agent_on_one_doc(
         if 0 <= run_cfg.thresh_conf <= 1:
             conf = verdict.confidence / 100.0
 
+        anchors = getattr(verdict, "anchors", None) or []
+        anchors_len = len(anchors)
+
         if (
             verdict.relevant
             and verdict.precedent_score >= run_cfg.thresh_score
             and conf >= run_cfg.thresh_conf
-            and len(verdict.anchors) >= run_cfg.anchors_required
+            and anchors_len >= run_cfg.anchors_required
         ):
             print(
                 f"[moltie.loop] ACCEPT iter={i} score={verdict.precedent_score} "
-                f"conf={verdict.confidence} anchors={len(verdict.anchors)}"
+                f"conf={verdict.confidence} anchors={anchors_len}"
             )
             return LoopResult(verdict=verdict, negative_exit=None, iters=i, trace=trace)
+
 
         if plateau >= run_cfg.plateau_p:
             if len(visited_starts) < est_total_windows:

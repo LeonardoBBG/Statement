@@ -5,7 +5,11 @@ from dataclasses import dataclass
 from typing import Iterator, List, Tuple, Dict, Optional
 
 
-_PARA_SPLIT = re.compile(r"\n\s*\n+")  # blank-line paragraphs
+_PARA_SPLIT = re.compile(
+    r"\n\s*\n+"                    # blank lines
+    r"|\n(?=\s*\(?\d+\)?[.)])"     # numbered para starts: 1. 1) (1)
+)
+  # blank-line paragraphs
 _WS_RE = re.compile(r"[ \t]+")
 
 

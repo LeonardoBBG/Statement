@@ -22,6 +22,61 @@ def _para_hits(p: Dict[str, str], seed_tokens: Set[str]) -> int:
     tks = set(tokenize(p.get("text", "")))
     return len(seed_tokens.intersection(tks))
 
+def _maybe_rechunk_single_blob_paras(
+    paras: List[Dict[str, str]],
+    *,
+    min_len: int = 40,
+    max_para_chars: int = 1800,
+    blob_threshold: int = 5000,
+) -> List[Dict[str, str]]:
+    """
+    Safety guard: if upstream PDF extraction collapsed everything into ONE giant paragraph,
+    split it into multiple paras so retrieval + anchors can work.
+    """
+    if not paras or len(paras) != 1:
+        return paras
+
+    text = (paras[0].get("text") or "").strip()
+    if len(text) < blob_threshold:
+        return paras
+
+    t = text.replace("\r\n", "\n").replace("\r", "\n")
+
+    parts = [p.strip() for p in t.split("\n\n") if p.strip()]
+
+    if len(parts) <= 3:
+        lines = [ln.strip() for ln in t.split("\n") if ln.strip()]
+        parts = []
+        buf: List[str] = []
+        size = 0
+        for ln in lines:
+            if size + len(ln) + 1 > max_para_chars and buf:
+                parts.append(" ".join(buf).strip())
+                buf = [ln]
+                size = len(ln)
+            else:
+                buf.append(ln)
+                size += len(ln) + 1
+        if buf:
+            parts.append(" ".join(buf).strip())
+
+    out: List[str] = []
+    for p in parts:
+        p = " ".join(p.split()).strip()
+        if len(p) < min_len:
+            continue
+        if len(p) <= max_para_chars:
+            out.append(p)
+        else:
+            start = 0
+            while start < len(p):
+                chunk = p[start : start + max_para_chars].strip()
+                if len(chunk) >= min_len:
+                    out.append(chunk)
+                start += max_para_chars
+
+    return [{"para_id": f"p{i:05d}", "text": p} for i, p in enumerate(out, start=1)]
+
 
 def retrieve_windowed_evidence(
     doc_id: str,
@@ -47,6 +102,7 @@ def retrieve_windowed_evidence(
 
     This prevents "only first pages" and replaces 'mid_fallback' with real coverage.
     """
+    paras = _maybe_rechunk_single_blob_paras(paras)
     n = len(paras)
     if n == 0:
         return RetrievalResult(doc_id=doc_id, paras=[], retrieval={
@@ -73,7 +129,15 @@ def retrieve_windowed_evidence(
     total_matching_paras = sum(1 for h in hits_by_idx if h >= min_hits)
 
     # Score windows by sum of (hits) for paras meeting min_hits
-    for start in range(0, n, stride):
+    # Build explicit window starts so we always include the final window (n - window_size)
+    starts = list(range(0, max(1, n), max(1, stride)))
+    if n > window_size:
+        last_start = max(0, n - window_size)
+        if last_start not in starts:
+            starts.append(last_start)
+    starts = sorted(set(starts))
+
+    for start in starts:
         if start in visited_starts:
             continue
         end = min(n, start + window_size)
@@ -85,8 +149,7 @@ def retrieve_windowed_evidence(
             if h >= min_hits:
                 score += h
         window_scores.append((score, start, end))
-        if end == n:
-            break
+
 
     window_scores.sort(key=lambda x: x[0], reverse=True)
 
