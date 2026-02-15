@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List  # ✅ FIX: import List
 
 import requests
 
@@ -34,8 +34,48 @@ class LLMClientConfig:
     ollama_url: str = "http://localhost:11434/api/generate"
     timeout_s: int = 180
     temperature: float = 0.0
-    num_predict: int = 450  # smaller helps reduce rambly JSON breakage
+    num_predict: int = 1200  # smaller helps reduce rambly JSON breakage
     max_retries: int = 2
+
+
+def _escape_raw_newlines_in_json_strings(raw: str) -> str:
+    """
+    JSON forbids literal newlines inside strings. Some models emit them.
+    This converts raw newline characters that occur *inside* JSON strings into \\n / \\r.
+
+    IMPORTANT: does NOT collapse whitespace outside strings (so it won't destroy structure).
+    """
+    out: List[str] = []
+    in_str = False
+    esc = False
+
+    for ch in raw:
+        if in_str:
+            if esc:
+                esc = False
+                out.append(ch)
+                continue
+            if ch == "\\":
+                esc = True
+                out.append(ch)
+                continue
+            if ch == "\"":
+                in_str = False
+                out.append(ch)
+                continue
+            if ch == "\n":
+                out.append("\\n")
+                continue
+            if ch == "\r":
+                out.append("\\r")
+                continue
+            out.append(ch)
+        else:
+            if ch == "\"":
+                in_str = True
+            out.append(ch)
+
+    return "".join(out)
 
 
 def _extract_json_object(text: str) -> Dict[str, Any]:
@@ -61,18 +101,104 @@ def _extract_json_object(text: str) -> Dict[str, Any]:
 
     candidate = s[start : end + 1].strip()
 
-    # 3) Parse candidate; if JSONDecodeError, salvage by normalizing whitespace
+    # Helper: replace a JSON array field value with [] using a quote-aware scan
+    def _replace_array_field_with_empty(raw: str, key: str) -> Optional[str]:
+        needle = f"\"{key}\""
+        i = raw.find(needle)
+        if i == -1:
+            return None
+
+        # Find ':' after the key
+        j = raw.find(":", i + len(needle))
+        if j == -1:
+            return None
+
+        # Find '[' that begins the array (skip whitespace)
+        k = j + 1
+        n = len(raw)
+        while k < n and raw[k].isspace():
+            k += 1
+        if k >= n or raw[k] != "[":
+            return None
+
+        # Scan forward to find the matching closing ']' (quote-aware)
+        in_str = False
+        esc = False
+        depth = 0
+        m = k
+        while m < n:
+            ch = raw[m]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == "\"":
+                    in_str = False
+            else:
+                if ch == "\"":
+                    in_str = True
+                elif ch == "[":
+                    depth += 1
+                elif ch == "]":
+                    depth -= 1
+                    if depth == 0:
+                        # replace [ ... ] with []
+                        return raw[:k] + "[]" + raw[m + 1 :]
+            m += 1
+
+        # FALLBACK: unterminated array (typical truncation). We still salvage by:
+        # - replacing from '[' to the final root '}' with []
+        # Candidate raw should already include the closing root brace (because you slice start..rfind("}")).
+        root_end = raw.rfind("}")
+        if root_end == -1 or root_end <= k:
+            return None
+
+        # Keep everything up to '[' then inject [], then close object immediately.
+        # This intentionally drops any partial garbage after the unterminated anchors.
+        return raw[:k] + "[]\n" + raw[root_end:]
+
+    # 3) Parse candidate; salvage if needed WITHOUT collapsing whitespace globally
     try:
         obj = json.loads(candidate)
-    except json.JSONDecodeError:
-        # Model sometimes inserts raw newlines inside JSON strings (illegal JSON).
-        # Normalizing to one line often salvages it without losing structure.
-        candidate_one_line = " ".join(candidate.split())
-        obj = json.loads(candidate_one_line)
+    except json.JSONDecodeError as e0:
+        # 3a) Escape illegal raw newlines inside strings
+        candidate_fixed = _escape_raw_newlines_in_json_strings(candidate)
+
+        try:
+            obj = json.loads(candidate_fixed)
+        except json.JSONDecodeError as e2:
+            # 3b) If still broken, strip anchors array and retry parse
+            repaired = _replace_array_field_with_empty(candidate_fixed, "anchors")
+            if repaired:
+                try:
+                    obj = json.loads(repaired)
+                except json.JSONDecodeError as e3:
+                    pos = getattr(e3, "pos", None)
+                    if isinstance(pos, int):
+                        lo = max(0, pos - 140)
+                        hi = min(len(repaired), pos + 140)
+                        snippet = repaired[lo:hi]
+                        raise ValueError(
+                            f"JSON salvage failed even after stripping anchors at pos={pos}. Nearby snippet: {snippet!r}"
+                        ) from e3
+                    raise ValueError(f"JSON salvage failed even after stripping anchors: {e3}") from e3
+            else:
+                # Deterministic debug: show failure position + local context
+                pos = getattr(e2, "pos", None)
+                if isinstance(pos, int):
+                    lo = max(0, pos - 140)
+                    hi = min(len(candidate_fixed), pos + 140)
+                    snippet = candidate_fixed[lo:hi]
+                    raise ValueError(
+                        f"JSON salvage failed at pos={pos}. Nearby snippet: {snippet!r}"
+                    ) from e2
+                raise ValueError(f"JSON salvage failed: {e2}") from e2
 
     if not isinstance(obj, dict):
         raise ValueError("Extracted JSON is not an object")
     return obj
+
 
 def _ollama_generate(prompt: str, cfg: LLMClientConfig, force_json: bool = True) -> str:
     payload: Dict[str, Any] = {
@@ -98,6 +224,7 @@ def _make_repair_prompt(bad_output: str) -> str:
         "You MUST output ONE SINGLE VALID JSON object.\n"
         "NO prose. NO markdown. NO extra keys.\n"
         "Do not include any paragraph dumps.\n"
+        "IMPORTANT: anchors MUST be a list of objects (not strings). If you cannot provide para_id, set anchors=[].\n"
         "If you cannot find verbatim anchors in the provided evidence, set relevant=false and anchors=[].\n"
         "precedent_score and confidence MUST be integers 0..100 (never -1). If unknown, use 0.\n\n"
         "REQUIRED VERDICT SCHEMA (keys must match exactly):\n"
@@ -149,28 +276,67 @@ def _coerce_missing_ids(obj: Dict[str, Any], base_prompt: str) -> Dict[str, Any]
     return obj
 
 
-def _clamp_int_0_100(x: Any, default: int = 0) -> int:
-    try:
-        v = int(x)
-    except Exception:
-        return default
-    if v < 0:
-        return 0
-    if v > 100:
-        return 100
-    return v
-
-
 def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
     """
     Defensive normalizer for Verdict JSON objects before validation.
 
     Goals:
-    - Keep EXACT allowed keys at root (caller enforces allowed keys separately).
+    - Drop unknown root keys (so we can sanitize before enforcing allowed keys).
+    - Ensure ALL required keys exist (fill defaults).
     - Coerce types (ints, bools, lists, strings).
-    - Normalize enums (use_mode, outcomes, winners) so Validator won't hard-fail.
+    - Normalize enums (use_mode, outcomes, winners).
+    - Accept common model variants:
+        * anchors items may use "text" instead of "quote"
+        * winners may be "employer"/"employee" -> respondent/claimant
     - Ensure anchors are well-formed dicts with required fields (para_id, quote, why_it_matters).
+    - Enforce low-signal rule: no anchors => relevant=false and cap score.
     """
+
+    # ========= contract keys (root) =========
+    _ALLOWED_KEYS = {
+        "atom_id",
+        "doc_id",
+        "relevant",
+        "matched_X",
+        "precedent_score",
+        "confidence",
+        "anchors",
+        "use_mode",
+        "proposition_winner",
+        "appeal_outcome",
+        "successful_party",
+        "distinguishers",
+        "note",
+        "retrieval_score",
+        "retrieval_method",
+    }
+
+    # Drop illegal/unknown root keys (e.g., "precedent_type", "why_it_matters", etc.)
+    if isinstance(obj, dict):
+        obj = {k: v for k, v in obj.items() if k in _ALLOWED_KEYS}
+    else:
+        obj = {}
+
+    # Ensure required keys exist (defaults)
+    defaults: Dict[str, Any] = {
+        "atom_id": "",
+        "doc_id": "",
+        "relevant": False,
+        "matched_X": [],
+        "precedent_score": 0,
+        "confidence": 0,
+        "anchors": [],
+        "use_mode": "contrast",
+        "proposition_winner": "unclear",
+        "appeal_outcome": "unknown",
+        "successful_party": "unclear",
+        "distinguishers": [],
+        "note": "No relevant information found.",
+        "retrieval_score": None,
+        "retrieval_method": None,
+    }
+    for k, v in defaults.items():
+        obj.setdefault(k, v)
 
     # ---------- helpers ----------
     def _as_str(x: Any) -> str:
@@ -191,7 +357,6 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
         return v
 
     def _as_bool(x: Any) -> bool:
-        # accept bool, 0/1, "true"/"false"
         if isinstance(x, bool):
             return x
         if isinstance(x, (int, float)):
@@ -204,6 +369,17 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
                 return False
         return False
 
+    def _map_party(x: Any) -> str:
+        s = _clean_str(x).lower()
+        # common synonyms
+        if s in {"claimant", "employee", "appellant", "worker"}:
+            return "claimant"
+        if s in {"respondent", "employer", "company"}:
+            return "respondent"
+        if s == "mixed":
+            return "mixed"
+        return "unclear"
+
     # ---------- core fields ----------
     obj["atom_id"] = _clean_str(obj.get("atom_id"))
     obj["doc_id"] = _clean_str(obj.get("doc_id"))
@@ -213,16 +389,27 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
     obj["precedent_score"] = _clamp_int(obj.get("precedent_score", 0), 0, 100, 0)
     obj["confidence"] = _clamp_int(obj.get("confidence", 0), 0, 100, 0)
 
-    # matched_X: list[str]
+    # matched_X: list[str] but ONLY X1..X5
     mx = obj.get("matched_X", [])
     if not isinstance(mx, list):
         mx = []
+
+    allowed_mx = {"X1", "X2", "X3", "X4", "X5"}
     mx2: List[str] = []
     for x in mx:
-        s = _clean_str(x)
-        if s:
+        s = _clean_str(x).upper()
+        if s in allowed_mx:
             mx2.append(s)
-    obj["matched_X"] = mx2
+
+    # de-dup preserve order
+    seen = set()
+    mx3: List[str] = []
+    for s in mx2:
+        if s not in seen:
+            seen.add(s)
+            mx3.append(s)
+
+    obj["matched_X"] = mx3
 
     # distinguishers: list[str]
     dist = obj.get("distinguishers", [])
@@ -235,7 +422,7 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
             dist2.append(s)
     obj["distinguishers"] = dist2
 
-    # note: single sentence-ish; keep non-empty
+    # note: keep non-empty
     note = _clean_str(obj.get("note", ""))
     obj["note"] = note if note else "No relevant information found."
 
@@ -261,77 +448,62 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
     for a in anchors:
         if not isinstance(a, dict):
             continue
+
         pid = _clean_str(a.get("para_id"))
-        quote = _as_str(a.get("quote"))
-        why = _clean_str(a.get("why_it_matters"))
-        # keep quote verbatim-ish (no stripping internal whitespace), but remove leading/trailing
-        quote = quote.strip() if isinstance(quote, str) else ""
+
+        # Accept either "quote" or "text" (model often emits "text")
+        q_raw = a.get("quote", None)
+        if q_raw is None:
+            q_raw = a.get("text", None)
+        quote = _as_str(q_raw).strip()
+
+        why = _clean_str(a.get("why_it_matters")) or "Relevant passage."
 
         if not pid or not quote:
             continue
-        if not why:
-            why = "Relevant passage."
 
         anchors_out.append({"para_id": pid, "quote": quote, "why_it_matters": why})
 
     obj["anchors"] = anchors_out
 
-    # ---------- enum normalization (CRITICAL) ----------
+    # ---------- enum normalization ----------
     rel = bool(obj.get("relevant", False))
 
-    # use_mode
     um = _clean_str(obj.get("use_mode", "")).lower()
     if um not in {"support", "contrast", "harmful"}:
         um = "support" if rel else "contrast"
-    # enforce: if relevant=false => contrast
     if not rel:
         um = "contrast"
     obj["use_mode"] = um
 
-    # proposition_winner
-    pw = _clean_str(obj.get("proposition_winner", "")).lower()
-    if pw not in {"claimant", "respondent", "mixed", "unclear"}:
-        pw = "unclear"
-    obj["proposition_winner"] = pw
+    obj["proposition_winner"] = _map_party(obj.get("proposition_winner", ""))
+    obj["successful_party"] = _map_party(obj.get("successful_party", ""))
 
-    # appeal_outcome
     ao = _clean_str(obj.get("appeal_outcome", "")).lower()
     if ao not in {"allowed", "dismissed", "remitted", "mixed", "unknown"}:
         ao = "unknown"
     obj["appeal_outcome"] = ao
 
-    # successful_party
-    sp = _clean_str(obj.get("successful_party", "")).lower()
-    if sp not in {"claimant", "respondent", "mixed", "unclear"}:
-        sp = "unclear"
-    obj["successful_party"] = sp
-
-    # ---------- enforce low-signal rule (defensive) ----------
-    # If no anchors after sanitization, force relevant=false and cap score.
+    # ---------- low-signal rule ----------
     if len(obj["anchors"]) == 0:
         obj["relevant"] = False
         obj["use_mode"] = "contrast"
         obj["precedent_score"] = min(obj["precedent_score"], 40)
 
-    # If relevant=false, also cap score defensively.
     if not obj["relevant"]:
         obj["precedent_score"] = min(obj["precedent_score"], 40)
 
     return obj
 
+
 def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
     """
     Calls Ollama and returns a validated Verdict.
-
-    Strategy:
-      A) strict JSON transport (format=json) -> parse -> sanitize -> validate -> return
-      B) on failure, ONE repair call: re-emit schema-valid JSON (no full prompt resend)
     """
-    base_prompt = prompt  # keep immutable for ID extraction
+    base_prompt = prompt
     last_err: Optional[Exception] = None
     last_txt: str = ""
 
-    # exactly allowed keys at root (your schema says: allowed keys ONLY)
     _ALLOWED_KEYS = {
         "atom_id",
         "doc_id",
@@ -367,7 +539,6 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
         keys = set(obj.keys())
         if keys & _WRONG_OBJECT_KEYS:
             return True
-        # must include core keys
         core = {"atom_id", "doc_id", "relevant", "anchors", "precedent_score", "confidence"}
         return not core.issubset(keys)
 
@@ -386,6 +557,7 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
             "- Output ONE JSON object ONLY that matches the Verdict schema.\n"
             "- Use ONLY allowed keys; no extras.\n"
             "- precedent_score and confidence must be integers 0..100 (never -1).\n"
+            "- anchors MUST be a list of objects, never strings. If you cannot provide para_id, output anchors=[].\n"
             "- Do NOT output retrieval reports or paragraph dumps.\n"
             f"- Fix required because: {why}\n\n"
             + p
@@ -394,7 +566,7 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
     prompt_to_send = base_prompt
 
     for attempt in range(cfg.max_retries + 1):
-        # ---- Attempt A: normal strict call ----
+        # ---- Attempt A ----
         try:
             txt = _ollama_generate(prompt_to_send, cfg, force_json=True)
             last_txt = txt
@@ -402,9 +574,7 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
             if len(txt) > _MAX_RAW_OUTPUT_CHARS:
                 raise ValueError("Model output too long (likely paragraph dump).")
 
-            if any(sn in txt for sn in _ILLEGAL_KEY_SNIPS):
-                raise ValueError("Model output included illegal keys/paragraph dumps.")
-
+            # NOTE: do NOT substring-scan for illegal keys here; it can false-trigger inside quotes.
             obj = _extract_json_object(txt)
             obj = _coerce_missing_ids(obj, base_prompt)
 
@@ -428,6 +598,7 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
                 "REPAIR TASK:\n"
                 "Return ONE Verdict JSON object ONLY with EXACT allowed keys.\n"
                 "precedent_score and confidence MUST be integers 0..100 (never -1). If unknown, use 0.\n"
+                "anchors MUST be a list of objects, never strings. If you cannot provide para_id, set anchors=[].\n"
                 "Do NOT output retrieval reports or paragraph dumps.\n\n"
                 + _make_repair_prompt(last_txt)
             )
