@@ -3,6 +3,30 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Literal, Optional
 
+"""
+Verdict schema layer: strict contract for LLM outputs.
+
+Responsibilities:
+- Define the structural shape of a Verdict.
+- Enforce field types, allowed keys, and enum constraints.
+- Enforce cross-field logical rules (e.g., no anchors if relevant=false).
+- Convert raw dict output from the LLM into strongly-typed objects.
+
+Guarantees:
+- Rejects malformed JSON structures.
+- Rejects illegal keys.
+- Rejects inconsistent cross-field states.
+- Enforces evidence-first rule (relevant=true requires anchors).
+
+Non-responsibilities:
+- Does not validate anchor text against source paragraphs.
+- Does not perform retrieval.
+- Does not interpret legal meaning.
+- Does not control iteration or stopping logic.
+
+This module defines the only allowed shape of a legal verdict in Moltie.
+All LLM outputs must pass through Verdict.from_dict().
+"""
 
 UseMode = Literal["support", "contrast", "harmful"]
 Party = Literal["claimant", "respondent", "mixed", "unclear"]
@@ -249,7 +273,9 @@ class VerdictValidator:
         # Cross-field hard rules (schema-level)
         # ----------------------------
         rel_bool = _to_bool(rel)
+
         if not rel_bool:
+            # irrelevant verdict must be contrast-only, no anchors, low score
             if um != "contrast":
                 raise ValueError("If relevant=false then use_mode must be 'contrast'")
             if anchors:
@@ -257,3 +283,15 @@ class VerdictValidator:
             ps = int(d.get("precedent_score", 0) or 0)
             if ps > 40:
                 raise ValueError("If relevant=false then precedent_score must be <= 40")
+
+        else:
+            # relevant verdict MUST have anchors
+            if not anchors:
+                raise ValueError("If relevant=true then anchors must be non-empty")
+
+            # Optional but recommended: enforce minimum evidential weight
+            # (prevents 'relevant=true, confidence=5' nonsense)
+            ps = int(d.get("precedent_score", 0) or 0)
+            if ps <= 0:
+                raise ValueError("If relevant=true then precedent_score must be > 0")
+

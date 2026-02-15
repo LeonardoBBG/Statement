@@ -45,7 +45,7 @@ def _extract_json_object(text: str) -> Dict[str, Any]:
     s = text.strip()
     s = _JSON_FENCE_RE.sub("", s).strip()
 
-    # Try direct parse
+    # 1) Direct parse
     try:
         obj = json.loads(s)
         if isinstance(obj, dict):
@@ -53,18 +53,26 @@ def _extract_json_object(text: str) -> Dict[str, Any]:
     except Exception:
         pass
 
-    # Find first {...} span
+    # 2) Extract first {...} blob
     start = s.find("{")
     end = s.rfind("}")
     if start == -1 or end == -1 or end <= start:
         raise ValueError("Could not locate JSON object braces in model output")
 
     candidate = s[start : end + 1].strip()
-    obj = json.loads(candidate)
+
+    # 3) Parse candidate; if JSONDecodeError, salvage by normalizing whitespace
+    try:
+        obj = json.loads(candidate)
+    except json.JSONDecodeError:
+        # Model sometimes inserts raw newlines inside JSON strings (illegal JSON).
+        # Normalizing to one line often salvages it without losing structure.
+        candidate_one_line = " ".join(candidate.split())
+        obj = json.loads(candidate_one_line)
+
     if not isinstance(obj, dict):
         raise ValueError("Extracted JSON is not an object")
     return obj
-
 
 def _ollama_generate(prompt: str, cfg: LLMClientConfig, force_json: bool = True) -> str:
     payload: Dict[str, Any] = {

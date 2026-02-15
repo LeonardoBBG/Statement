@@ -5,6 +5,29 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 
+"""
+Loader layer: document ingestion.
+
+Responsibilities:
+- Convert external storage formats (txt directories, jsonl files)
+  into in-memory Doc objects.
+- Preserve raw document text exactly as read.
+- Attach lightweight metadata (source path, format, extra JSON fields).
+
+Guarantees:
+- Each Doc has a stable doc_id.
+- Doc.text is the full raw text content (no chunking, no cleaning beyond strip()).
+- No paragraph splitting, no retrieval, no reasoning.
+
+Non-responsibilities:
+- Does not parse PDFs.
+- Does not split paragraphs.
+- Does not score relevance.
+- Does not modify text content structurally.
+
+Output:
+- List[Doc] where Doc = {doc_id, text, meta}.
+"""
 
 @dataclass(frozen=True)
 class Doc:

@@ -7,6 +7,31 @@ from typing import Dict, List, Tuple, Iterable, Optional
 from .loader import Doc
 from .chunker import Chunk, chunk_doc
 
+"""
+Index layer: cheap retrieval over chunked corpus.
+
+Responsibilities:
+- Build a CorpusIndex from a list of Doc objects by running chunk_doc().
+- Provide baseline keyword-based chunk scoring.
+- Aggregate chunk scores into document-level scores.
+- Return top-k documents with their top-k scoring chunks.
+
+Guarantees:
+- Does not modify chunk structure.
+- Retrieval is deterministic given terms and corpus.
+- Scores reflect simple term-hit counts.
+
+Non-responsibilities:
+- Does not perform semantic embeddings.
+- Does not perform legal reasoning.
+- Does not iterate or refine queries.
+- Does not validate anchors.
+- Does not decide final verdicts.
+
+Output:
+- CorpusIndex {docs, chunks_by_doc}
+- Retrieval results: List[(doc_id, doc_score, top_chunks)]
+"""
 
 @dataclass
 class CorpusIndex:
