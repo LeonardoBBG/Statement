@@ -467,6 +467,7 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
     obj["anchors"] = anchors_out
 
     # ---------- enum normalization ----------
+    # ---------- enum normalization ----------
     rel = bool(obj.get("relevant", False))
 
     um = _clean_str(obj.get("use_mode", "")).lower()
@@ -492,6 +493,11 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
 
     if not obj["relevant"]:
         obj["precedent_score"] = min(obj["precedent_score"], 40)
+
+    # ✅ FINAL CONSISTENCY GUARD
+    # If relevant=True, "contrast" makes no sense for your semantics.
+    if obj["relevant"] and obj["use_mode"] == "contrast":
+        obj["use_mode"] = "support"
 
     return obj
 
