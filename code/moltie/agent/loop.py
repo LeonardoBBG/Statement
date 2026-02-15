@@ -114,29 +114,13 @@ def _quote_ok(quote: str, text: str) -> bool:
     if quote in text:
         return True
 
-    # 2) normalized strict
+    # 2) normalized strict (punctuation/whitespace/quotes/dashes)
     nq = _norm(quote)
     nt = _norm(text)
     if nq and nq in nt:
         return True
 
-    # 3) token-in-order fallback (still evidence-based)
-    toks = [t for t in re.findall(r"[A-Za-z0-9]{3,}", nq.lower())]
-    if len(toks) < 5:
-        return False
-
-    pos = 0
-    hits = 0
-    nt_low = nt.lower()
-    for t in toks:
-        j = nt_low.find(t, pos)
-        if j == -1:
-            continue
-        hits += 1
-        pos = j + len(t)
-
-    return hits >= max(5, int(0.75 * len(toks)))
-
+    return False
 
 def _h(s: str) -> str:
     return hashlib.sha1(s.encode("utf-8", errors="ignore")).hexdigest()[:10]
@@ -175,6 +159,25 @@ def _anchors_valid(verdict: Verdict, para_map: Dict[str, str]) -> Tuple[bool, Li
             bad.append(("non_verbatim", pid))
 
     return (len(bad) == 0, bad)
+
+def _evidence_to_x_from_verdict(doc_id: str, verdict: Verdict) -> Dict[str, List[str]]:
+    """
+    Build evidence_to_x at PARA granularity:
+      evidence_id = f"{doc_id}:{para_id}"
+      value = list of X ids (from verdict.matched_X)
+    """
+    xs = [str(x).strip() for x in (getattr(verdict, "matched_X", None) or []) if str(x).strip()]
+    anchors = getattr(verdict, "anchors", None) or []
+
+    out: Dict[str, Set[str]] = {}
+    for a in anchors:
+        pid = a.para_id if hasattr(a, "para_id") else a.get("para_id")
+        if not pid:
+            continue
+        evid = f"{doc_id}:{str(pid).strip()}"
+        out.setdefault(evid, set()).update(xs)
+
+    return {k: sorted(v) for k, v in out.items()}
 
 
 def _is_strong_for_harvest(v: Verdict, run_cfg: RunConfig) -> bool:
@@ -312,6 +315,23 @@ def run_harvest_then_reason_on_one_doc(
     harvested_para_ids: Set[str] = set()
     harvested_windows: List[Dict[str, Any]] = []
 
+    # --- ADDED: evidence_to_x accumulator (para-level evidence keys) ---
+    # evidence_id format: f"{doc_id}:{para_id}"
+    harvested_evidence_to_x: Dict[str, Set[str]] = {}
+
+    # --- ADDED: local helper to bind anchors -> matched_X (no external deps) ---
+    def _evidence_to_x_from_verdict(_doc_id: str, _verdict: "Verdict") -> Dict[str, List[str]]:
+        xs = [str(x).strip() for x in (getattr(_verdict, "matched_X", None) or []) if str(x).strip()]
+        anchors = getattr(_verdict, "anchors", None) or []
+        out: Dict[str, Set[str]] = {}
+        for a in anchors:
+            pid = a.para_id if hasattr(a, "para_id") else a.get("para_id")
+            if not pid:
+                continue
+            evid = f"{_doc_id}:{str(pid).strip()}"
+            out.setdefault(evid, set()).update(xs)
+        return {k: sorted(v) for k, v in out.items()}
+
     n = len(paras)
 
     if n <= window_size:
@@ -354,6 +374,40 @@ def run_harvest_then_reason_on_one_doc(
 
         prompt = build_verifier_prompt(atom=atom, evidence_pack=evidence_pack, cfg=run_cfg)
 
+        def _prev(s: str, n: int = 180) -> str:
+            s = (s or "").replace("\n", " ").strip()
+            return s[:n] + ("..." if len(s) > n else "")
+
+        if run_cfg.debug:
+            sent = evidence_pack["paras"] or []
+            print("\n[moltie.forensic] ===== ABOUT TO CALL LLM =====")
+            print("[moltie.forensic] iter:", i, "doc_id:", doc_id, "atom_id:", atom.atom_id, "x_tests:", getattr(atom, "x_tests", None))
+            print("[moltie.forensic] total_paras_in_doc:", len(paras), "paras_sent:", len(sent))
+            print("[moltie.forensic] retrieval_method:", (rr.retrieval or {}).get("method"), "picked_windows:", (rr.retrieval or {}).get("picked_windows"))
+
+            # para_ids we are sending (first 12)
+            ids = [p.get("para_id") for p in sent[:12]]
+            print("[moltie.forensic] sent_para_ids_head:", ids)
+
+            # show preview + lengths so we can see if we are sending mega blobs
+            for p in sent[:3]:
+                pid = p.get("para_id")
+                txt = p.get("text") or ""
+                print(f"[moltie.forensic] para {pid} len={len(txt)} preview={_prev(txt, 240)}")
+
+            # if build_verifier_prompt embeds allowed ids, surface them
+            # (we don't parse JSON fully; just detect whether the allowed ids appear at all)
+            print("[moltie.forensic] prompt_chars:", len(prompt))
+            print("[moltie.forensic] prompt_head_350:\n", prompt[:350])
+
+            # quick sanity: do the para_ids we sent appear in the prompt at all?
+            # (if not, the model is NOT seeing the para list you think it is)
+            missing_in_prompt = [pid for pid in ids if pid and (pid not in prompt)]
+            print("[moltie.forensic] sent_para_ids_missing_in_prompt_head:", missing_in_prompt[:8])
+
+            print("[moltie.forensic] ===============================\n")
+
+
         verdict = verify_with_ollama(prompt, llm_cfg)
 
         pack_para_map = {p["para_id"]: p["text"] for p in pack}
@@ -380,6 +434,9 @@ def run_harvest_then_reason_on_one_doc(
                 "verdict": verdict.to_dict(),
                 "anchors_ok": ok,
                 "anchors_bad": bad[:6],
+                # --- ADDED: include matched_X + evidence_to_x per-window for audit ---
+                "matched_X": list(getattr(verdict, "matched_X", None) or []),
+                "evidence_to_x": _evidence_to_x_from_verdict(doc_id, verdict),
             }
         )
 
@@ -393,6 +450,11 @@ def run_harvest_then_reason_on_one_doc(
                 pid = a.para_id if hasattr(a, "para_id") else a.get("para_id")
                 if pid:
                     harvested_para_ids.add(pid)
+
+            # --- ADDED: accumulate evidence_to_x for strong windows only ---
+            m = _evidence_to_x_from_verdict(doc_id, verdict)
+            for evid, xs in m.items():
+                harvested_evidence_to_x.setdefault(evid, set()).update(xs)
 
     if not harvested_verdicts or not harvested_para_ids:
         if debug:
@@ -451,8 +513,20 @@ def run_harvest_then_reason_on_one_doc(
 
         return LoopResult(verdict=best, negative_exit=None, iters=1, trace=trace)
 
-    return LoopResult(verdict=verdict2, negative_exit=None, iters=1, trace=trace)
+    # --- ADDED: attach consolidated evidence_to_x into trace tail for visibility ---
+    # This does NOT change return schema; it's only for debug/audit.
+    if harvested_evidence_to_x:
+        trace.append(
+            {
+                "phase": "harvest_summary",
+                "doc_id": doc_id,
+                "atom_id": atom.atom_id,
+                "evidence_to_x": {k: sorted(v) for k, v in harvested_evidence_to_x.items()},
+                "n_evidence_items": len(harvested_evidence_to_x),
+            }
+        )
 
+    return LoopResult(verdict=verdict2, negative_exit=None, iters=1, trace=trace)
 
 def run_agent_on_one_doc(
     doc_id: str,
@@ -498,6 +572,22 @@ def run_agent_on_one_doc(
     starts = sorted(set(starts))
     est_total_windows = max(1, len(starts))
 
+    # --- ADDED: evidence_to_x accumulator (para-level evidence keys) ---
+    # evidence_id format: f"{doc_id}:{para_id}"
+    evidence_to_x_all: Dict[str, Set[str]] = {}
+
+    # --- ADDED: local helper to bind anchors -> matched_X (no external deps) ---
+    def _evidence_to_x_from_verdict(_doc_id: str, _verdict: "Verdict") -> Dict[str, List[str]]:
+        xs = [str(x).strip() for x in (getattr(_verdict, "matched_X", None) or []) if str(x).strip()]
+        anchors = getattr(_verdict, "anchors", None) or []
+        out: Dict[str, Set[str]] = {}
+        for a in anchors:
+            pid = a.para_id if hasattr(a, "para_id") else a.get("para_id")
+            if not pid:
+                continue
+            evid = f"{_doc_id}:{str(pid).strip()}"
+            out.setdefault(evid, set()).update(xs)
+        return {k: sorted(v) for k, v in out.items()}
 
     for i in range(1, run_cfg.max_iters + 1):
         rr = retrieve_windowed_evidence(
@@ -546,6 +636,9 @@ def run_agent_on_one_doc(
                     "retrieval": rr.retrieval,
                     "verdict": verdict.to_dict(),
                     "error": {"type": "invalid_anchors", "details": bad[:6]},
+                    # --- ADDED: include matched_X + evidence_to_x even for failures (useful for diagnosing) ---
+                    "matched_X": list(getattr(verdict, "matched_X", None) or []),
+                    "evidence_to_x": _evidence_to_x_from_verdict(doc_id, verdict),
                 }
             )
             print(f"[moltie.loop] INVALID_ANCHORS iter={i} bad={bad[:3]} -> continuing")
@@ -554,7 +647,21 @@ def run_agent_on_one_doc(
             atom = refine_query(atom, verdict, i).atom
             continue
 
-        trace.append({"iter": i, "retrieval": rr.retrieval, "verdict": verdict.to_dict()})
+        # --- ADDED: per-iter evidence_to_x mapping (anchored only) ---
+        evidence_to_x_step = _evidence_to_x_from_verdict(doc_id, verdict)
+        for evid, xs in evidence_to_x_step.items():
+            evidence_to_x_all.setdefault(evid, set()).update(xs)
+
+        trace.append(
+            {
+                "iter": i,
+                "retrieval": rr.retrieval,
+                "verdict": verdict.to_dict(),
+                # --- ADDED: audit visibility ---
+                "matched_X": list(getattr(verdict, "matched_X", None) or []),
+                "evidence_to_x": evidence_to_x_step,
+            }
+        )
 
         q = _compute_quality(verdict)
         print(
@@ -587,8 +694,20 @@ def run_agent_on_one_doc(
                 f"[moltie.loop] ACCEPT iter={i} score={verdict.precedent_score} "
                 f"conf={verdict.confidence} anchors={anchors_len}"
             )
-            return LoopResult(verdict=verdict, negative_exit=None, iters=i, trace=trace)
 
+            # --- ADDED: attach consolidated evidence_to_x into trace tail for visibility ---
+            if evidence_to_x_all:
+                trace.append(
+                    {
+                        "phase": "evidence_to_x_summary",
+                        "doc_id": doc_id,
+                        "atom_id": atom.atom_id,
+                        "evidence_to_x": {k: sorted(v) for k, v in evidence_to_x_all.items()},
+                        "n_evidence_items": len(evidence_to_x_all),
+                    }
+                )
+
+            return LoopResult(verdict=verdict, negative_exit=None, iters=i, trace=trace)
 
         if plateau >= run_cfg.plateau_p:
             if len(visited_starts) < est_total_windows:
@@ -613,6 +732,19 @@ def run_agent_on_one_doc(
                     f"{est_total_windows} best_quality={best_quality} best_score={best_score}"
                 ),
             )
+
+            # --- ADDED: attach consolidated evidence_to_x into trace tail for visibility ---
+            if evidence_to_x_all:
+                trace.append(
+                    {
+                        "phase": "evidence_to_x_summary",
+                        "doc_id": doc_id,
+                        "atom_id": atom.atom_id,
+                        "evidence_to_x": {k: sorted(v) for k, v in evidence_to_x_all.items()},
+                        "n_evidence_items": len(evidence_to_x_all),
+                    }
+                )
+
             return LoopResult(verdict=None, negative_exit=nx, iters=i, trace=trace)
 
         atom = refine_query(atom, verdict, i).atom
@@ -624,4 +756,17 @@ def run_agent_on_one_doc(
         best=best,
         note=f"Max iters reached; best_quality={best_quality} best_score={best_score}",
     )
+
+    # --- ADDED: attach consolidated evidence_to_x into trace tail for visibility ---
+    if evidence_to_x_all:
+        trace.append(
+            {
+                "phase": "evidence_to_x_summary",
+                "doc_id": doc_id,
+                "atom_id": atom.atom_id,
+                "evidence_to_x": {k: sorted(v) for k, v in evidence_to_x_all.items()},
+                "n_evidence_items": len(evidence_to_x_all),
+            }
+        )
+
     return LoopResult(verdict=None, negative_exit=nx, iters=run_cfg.max_iters, trace=trace)

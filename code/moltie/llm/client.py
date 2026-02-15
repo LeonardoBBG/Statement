@@ -9,7 +9,134 @@ import requests
 
 from ..schemas.verdict import Verdict, VerdictValidator
 
+
+"""
+moltie.llm.client
+=================
+
+Strict LLM client for generating and validating Verdict objects.
+
+Purpose
+-------
+This module wraps calls to a local Ollama model and enforces a deterministic
+output contract. It ensures that all LLM responses conform exactly to the
+Verdict schema used by the Moltie reasoning engine.
+
+The client converts probabilistic model output into a validated, typed
+Verdict domain object. If the model output violates the contract, the client
+attempts controlled repair before ultimately failing loudly.
+
+Core Responsibilities
+---------------------
+
+1. Transport
+   - Calls Ollama using format="json".
+   - Controls temperature and token limits.
+
+2. JSON Extraction & Salvage
+   - Extracts the first JSON object from model output.
+   - Repairs common JSON breakage (e.g. raw newlines inside strings).
+   - Handles truncated anchors arrays safely.
+
+3. Schema Enforcement
+   - Drops illegal root keys.
+   - Ensures all required Verdict keys exist.
+   - Normalizes enums and value ranges.
+   - Coerces types (ints, bools, lists, strings).
+   - Maps common synonym values (e.g. employer → respondent).
+
+4. Anchor Validation
+   - Requires anchors to be objects with:
+        {para_id, quote, why_it_matters}
+   - Accepts "text" as alias for "quote".
+   - Removes malformed anchors.
+   - Enforces low-signal rule:
+        No anchors → relevant=False and score capped.
+
+5. Contract Repair
+   - On invalid output, sends a strict repair prompt.
+   - Limits retries.
+   - Raises RuntimeError if the contract cannot be satisfied.
+
+Design Philosophy
+-----------------
+This client acts as a boundary guard between the LLM and the reasoning engine.
+It ensures:
+
+    LLM output → Validated Verdict → Safe downstream execution
+
+The rest of Moltie assumes Verdict objects are structurally correct.
+This module guarantees that invariant.
+
+Failure Modes
+-------------
+- Invalid JSON → salvage attempt → repair attempt → RuntimeError
+- Schema violations → repair attempt → RuntimeError
+- Missing anchors → forced relevant=False
+
+This is intentional. Silent corruption is worse than failure.
+
+Authoritative Output
+--------------------
+The only acceptable final output from verify_with_ollama() is:
+
+    Verdict
+
+All other states are rejected.
+"""
+
 _JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
+
+_VERDICT_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "atom_id": {"type": "string"},
+        "doc_id": {"type": "string"},
+        "relevant": {"type": "boolean"},
+        "matched_X": {"type": "array", "items": {"type": "string"}},
+        "precedent_score": {"type": "integer", "minimum": 0, "maximum": 100},
+        "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+        "anchors": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "para_id": {"type": "string"},
+                    "quote": {"type": "string"},
+                    "why_it_matters": {"type": "string"},
+                },
+                "required": ["para_id", "quote", "why_it_matters"],
+                "additionalProperties": False,
+            },
+        },
+        "use_mode": {"type": "string"},
+        "proposition_winner": {"type": "string"},
+        "appeal_outcome": {"type": "string"},
+        "successful_party": {"type": "string"},
+        "distinguishers": {"type": "array", "items": {"type": "string"}},
+        "note": {"type": "string"},
+        "retrieval_score": {"type": ["number", "null"]},
+        "retrieval_method": {"type": "string"},
+    },
+    "required": [
+        "atom_id",
+        "doc_id",
+        "relevant",
+        "matched_X",
+        "precedent_score",
+        "confidence",
+        "anchors",
+        "use_mode",
+        "proposition_winner",
+        "appeal_outcome",
+        "successful_party",
+        "distinguishers",
+        "note",
+        "retrieval_score",
+        "retrieval_method",
+    ],
+    "additionalProperties": False,
+}
 
 # If the model starts dumping paragraphs or adding illegal keys, we hard-fail to trigger repair.
 # NOTE: keep these specific to illegal TOP-LEVEL keys, not generic substrings.
@@ -211,7 +338,7 @@ def _ollama_generate(prompt: str, cfg: LLMClientConfig, force_json: bool = True)
         },
     }
     if force_json:
-        payload["format"] = "json"
+        payload["format"] = _VERDICT_JSON_SCHEMA
 
     r = requests.post(cfg.ollama_url, json=payload, timeout=cfg.timeout_s)
     r.raise_for_status()
@@ -265,16 +392,49 @@ def _extract_from_prompt(prompt_txt: str, key: str) -> Optional[str]:
 
 
 def _coerce_missing_ids(obj: Dict[str, Any], base_prompt: str) -> Dict[str, Any]:
-    if not str(obj.get("atom_id") or "").strip():
-        aid = _extract_from_prompt(base_prompt, "atom_id")
-        if aid:
-            obj["atom_id"] = aid
-    if not str(obj.get("doc_id") or "").strip():
-        did = _extract_from_prompt(base_prompt, "doc_id")
-        if did:
-            obj["doc_id"] = did
-    return obj
+    """
+    Fill atom_id/doc_id ONLY from the Input JSON payload in the prompt.
+    Never take placeholder values from schema examples (e.g. "string").
+    """
+    if not isinstance(obj, dict):
+        return obj
 
+    def _bad(v: Any) -> bool:
+        s = ("" if v is None else str(v)).strip()
+        return (not s) or (s.lower() == "string")
+
+    # Quick exit if already OK
+    if not _bad(obj.get("atom_id")) and not _bad(obj.get("doc_id")):
+        return obj
+
+    # Extract the Input JSON block (the payload)
+    payload = None
+    try:
+        marker = "Input JSON"
+        i = base_prompt.rfind(marker)
+        if i != -1:
+            tail = base_prompt[i:]
+            payload = _extract_json_object(tail)
+    except Exception:
+        payload = None
+
+    if not isinstance(payload, dict):
+        return obj
+
+    # Pull true IDs from payload
+    true_doc_id = str(payload.get("doc_id") or "").strip()
+    true_atom_id = ""
+    atom = payload.get("atom")
+    if isinstance(atom, dict):
+        true_atom_id = str(atom.get("atom_id") or "").strip()
+
+    # Write only if bad
+    if _bad(obj.get("doc_id")) and true_doc_id:
+        obj["doc_id"] = true_doc_id
+    if _bad(obj.get("atom_id")) and true_atom_id:
+        obj["atom_id"] = true_atom_id
+
+    return obj
 
 def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -505,6 +665,12 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
 def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
     """
     Calls Ollama and returns a validated Verdict.
+
+    ADD-ONLY DEBUG VERSION:
+    - Prints prompt hash/head
+    - Prints raw model output head/tail
+    - Prints extracted keys + atom_id/doc_id before/after coercion
+    - Prints exception causes for Attempt A and Attempt B
     """
     base_prompt = prompt
     last_err: Optional[Exception] = None
@@ -539,6 +705,11 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
         "matched_paras",
     }
 
+    # --- ADDED: local hash helper (client.py may not have loop._h) ---
+    def _h(s: str) -> str:
+        import hashlib
+        return hashlib.sha1((s or "").encode("utf-8", errors="ignore")).hexdigest()[:10]
+
     def _is_wrong_object(obj: Any) -> bool:
         if not isinstance(obj, dict):
             return True
@@ -565,6 +736,9 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
             "- precedent_score and confidence must be integers 0..100 (never -1).\n"
             "- anchors MUST be a list of objects, never strings. If you cannot provide para_id, output anchors=[].\n"
             "- Do NOT output retrieval reports or paragraph dumps.\n"
+            "- Do NOT output an 'answer' field or any wrapper object. Output the Verdict object ONLY.\n"
+            "- NEVER output a JSON object with a single key like {'answer': ...}. That is invalid.\n"
+            "- You must output ALL required keys, including anchors/use_mode/etc.\n"
             f"- Fix required because: {why}\n\n"
             + p
         )
@@ -577,12 +751,40 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
             txt = _ollama_generate(prompt_to_send, cfg, force_json=True)
             last_txt = txt
 
+            # --- ADDED DEBUG (Attempt A) ---
+            try:
+                print("\n[moltie.client] ===== Attempt A =====")
+                print("[moltie.client] attempt:", attempt)
+                print("[moltie.client] prompt_hash:", _h(prompt_to_send))
+                print("[moltie.client] prompt_head:\n", (prompt_to_send or "")[:600])
+                print("[moltie.client] raw_len:", len(txt or ""))
+                print("[moltie.client] raw_head:\n", (txt or "")[:800])
+                print("[moltie.client] raw_tail:\n", (txt or "")[-400:])
+            except Exception as _dbg_e:
+                print("[moltie.client] debug_print_failed:", repr(_dbg_e))
+
             if len(txt) > _MAX_RAW_OUTPUT_CHARS:
                 raise ValueError("Model output too long (likely paragraph dump).")
 
             # NOTE: do NOT substring-scan for illegal keys here; it can false-trigger inside quotes.
             obj = _extract_json_object(txt)
+
+            # --- ADDED DEBUG: extracted obj keys (Attempt A) ---
+            try:
+                print("[moltie.client] extracted_keys:", sorted(list((obj or {}).keys()))[:40])
+                print("[moltie.client] extracted_atom_id:", (obj or {}).get("atom_id"))
+                print("[moltie.client] extracted_doc_id:", (obj or {}).get("doc_id"))
+            except Exception as _dbg_e:
+                print("[moltie.client] debug_obj_failed:", repr(_dbg_e))
+
             obj = _coerce_missing_ids(obj, base_prompt)
+
+            # --- ADDED DEBUG: post-coerce ids (Attempt A) ---
+            try:
+                print("[moltie.client] post_coerce_atom_id:", (obj or {}).get("atom_id"))
+                print("[moltie.client] post_coerce_doc_id:", (obj or {}).get("doc_id"))
+            except Exception as _dbg_e:
+                print("[moltie.client] debug_post_coerce_failed:", repr(_dbg_e))
 
             if _is_wrong_object(obj):
                 raise ValueError(f"Wrong JSON object returned (not a Verdict). Keys={sorted(list(obj.keys()))[:12]}")
@@ -595,6 +797,12 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
             return Verdict.from_dict(obj)
 
         except Exception as e:
+            # --- ADDED DEBUG: why Attempt A failed ---
+            try:
+                print("[moltie.client] Attempt A exception:", repr(e))
+            except Exception:
+                pass
+
             last_err = e
             prompt_to_send = _prepend_correction(base_prompt, why=str(e))
 
@@ -606,16 +814,48 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
                 "precedent_score and confidence MUST be integers 0..100 (never -1). If unknown, use 0.\n"
                 "anchors MUST be a list of objects, never strings. If you cannot provide para_id, set anchors=[].\n"
                 "Do NOT output retrieval reports or paragraph dumps.\n\n"
+                "If anchors is empty, set relevant=false and use_mode='contrast' and precedent_score<=40.\n"
+                + "You MUST use the following Input JSON evidence. Copy quotes EXACTLY as substrings.\n\n"
+                + base_prompt
+                + "\n\nMODEL LAST OUTPUT (for reference only; do not copy text unless it appears verbatim in evidence):\n"
                 + _make_repair_prompt(last_txt)
             )
 
             txt2 = _ollama_generate(repair_prompt, cfg, force_json=True)
 
+            # --- ADDED DEBUG (Attempt B) ---
+            try:
+                print("\n[moltie.client] ===== Attempt B (REPAIR) =====")
+                print("[moltie.client] attempt:", attempt)
+                print("[moltie.client] repair_prompt_hash:", _h(repair_prompt))
+                print("[moltie.client] repair_prompt_head:\n", (repair_prompt or "")[:600])
+                print("[moltie.client] raw2_len:", len(txt2 or ""))
+                print("[moltie.client] raw2_head:\n", (txt2 or "")[:800])
+                print("[moltie.client] raw2_tail:\n", (txt2 or "")[-400:])
+            except Exception as _dbg_e:
+                print("[moltie.client] debug_print_failed:", repr(_dbg_e))
+
             if len(txt2) > _MAX_RAW_OUTPUT_CHARS:
                 raise ValueError("Repair output too long (likely paragraph dump).")
 
             obj2 = _extract_json_object(txt2)
+
+            # --- ADDED DEBUG: extracted obj2 keys (Attempt B) ---
+            try:
+                print("[moltie.client] extracted2_keys:", sorted(list((obj2 or {}).keys()))[:40])
+                print("[moltie.client] extracted2_atom_id:", (obj2 or {}).get("atom_id"))
+                print("[moltie.client] extracted2_doc_id:", (obj2 or {}).get("doc_id"))
+            except Exception as _dbg_e:
+                print("[moltie.client] debug_obj2_failed:", repr(_dbg_e))
+
             obj2 = _coerce_missing_ids(obj2, base_prompt)
+
+            # --- ADDED DEBUG: post-coerce ids (Attempt B) ---
+            try:
+                print("[moltie.client] post_coerce2_atom_id:", (obj2 or {}).get("atom_id"))
+                print("[moltie.client] post_coerce2_doc_id:", (obj2 or {}).get("doc_id"))
+            except Exception as _dbg_e:
+                print("[moltie.client] debug_post_coerce2_failed:", repr(_dbg_e))
 
             if _is_wrong_object(obj2):
                 raise ValueError(f"Repair returned wrong JSON object. Keys={sorted(list(obj2.keys()))[:12]}")
@@ -628,6 +868,12 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
             return Verdict.from_dict(obj2)
 
         except Exception as e2:
+            # --- ADDED DEBUG: why Attempt B failed ---
+            try:
+                print("[moltie.client] Attempt B exception:", repr(e2))
+            except Exception:
+                pass
+
             last_err = e2
             prompt_to_send = _prepend_correction(base_prompt, why=str(e2))
             continue
