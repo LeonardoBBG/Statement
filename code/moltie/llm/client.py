@@ -393,21 +393,31 @@ def _extract_from_prompt(prompt_txt: str, key: str) -> Optional[str]:
 
 def _coerce_missing_ids(obj: Dict[str, Any], base_prompt: str) -> Dict[str, Any]:
     """
-    Fill atom_id/doc_id ONLY from the Input JSON payload in the prompt.
-    Never take placeholder values from schema examples (e.g. "string").
+    Fill atom_id/doc_id from the Input JSON payload in the prompt.
+
+    Treat placeholders (e.g. "", "string", all-zero UUID, "none", "unknown")
+    as invalid and overwrite them.
+
+    atom_id/doc_id are metadata, not model judgment, so overriding bad values
+    is correct and safe.
     """
     if not isinstance(obj, dict):
         return obj
 
+    _BAD_VALUES = {
+        "",
+        "string",
+        "none",
+        "null",
+        "unknown",
+        "00000000-0000-0000-0000-000000000000",
+    }
+
     def _bad(v: Any) -> bool:
-        s = ("" if v is None else str(v)).strip()
-        return (not s) or (s.lower() == "string")
+        s = ("" if v is None else str(v)).strip().lower()
+        return s in _BAD_VALUES
 
-    # Quick exit if already OK
-    if not _bad(obj.get("atom_id")) and not _bad(obj.get("doc_id")):
-        return obj
-
-    # Extract the Input JSON block (the payload)
+    # Extract the Input JSON block (payload) from prompt
     payload = None
     try:
         marker = "Input JSON"
@@ -421,17 +431,19 @@ def _coerce_missing_ids(obj: Dict[str, Any], base_prompt: str) -> Dict[str, Any]
     if not isinstance(payload, dict):
         return obj
 
-    # Pull true IDs from payload
+    # Pull authoritative IDs from payload
     true_doc_id = str(payload.get("doc_id") or "").strip()
+
     true_atom_id = ""
     atom = payload.get("atom")
     if isinstance(atom, dict):
         true_atom_id = str(atom.get("atom_id") or "").strip()
 
-    # Write only if bad
-    if _bad(obj.get("doc_id")) and true_doc_id:
+    # Overwrite if missing OR placeholder
+    if true_doc_id and (_bad(obj.get("doc_id")) or obj.get("doc_id") != true_doc_id):
         obj["doc_id"] = true_doc_id
-    if _bad(obj.get("atom_id")) and true_atom_id:
+
+    if true_atom_id and (_bad(obj.get("atom_id")) or obj.get("atom_id") != true_atom_id):
         obj["atom_id"] = true_atom_id
 
     return obj
