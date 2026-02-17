@@ -4,6 +4,7 @@ import hashlib
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
+from dataclasses import replace
 
 from ..llm.client import LLMClientConfig, verify_with_ollama
 from ..llm.verifier_prompt import build_verifier_prompt
@@ -45,6 +46,11 @@ _SOFT_JUNK_SIGNALS = (
     "transcript",
 )
 
+def _sanitize_matched_x(verdict: Verdict, atom: AtomQuery) -> List[str]:
+    allowed = set(getattr(atom, "x_tests", []) or [])
+    xs = [str(x).strip() for x in (getattr(verdict, "matched_X", None) or []) if str(x).strip()]
+    return [x for x in xs if x in allowed]
+
 def _is_junk_para(text: str) -> bool:
     if not text:
         return True
@@ -70,6 +76,22 @@ def _is_junk_para(text: str) -> bool:
         return True
 
     return False
+
+def enforce_matched_x(verdict: "Verdict", atom_id: str, allowed_x: list[str]) -> "Verdict":
+    allowed = {str(x).strip() for x in (allowed_x or []) if str(x).strip()}
+
+    mx = [str(x).strip() for x in (getattr(verdict, "matched_X", None) or []) if str(x).strip()]
+    mx2 = [x for x in mx if x in allowed]
+
+    # If the model says relevant=True but matched_X doesn't include the atom, force non-relevant
+    relevant2 = bool(getattr(verdict, "relevant", False))
+    if relevant2 and atom_id and (atom_id not in mx2):
+        relevant2 = False
+        mx2 = []
+
+    # frozen dataclass => create a new instance
+    return replace(verdict, matched_X=mx2, relevant=relevant2)
+
 
 def _filter_front_matter(paras, min_keep=4, debug=False, head_limit=40):
     if not paras:
@@ -264,6 +286,8 @@ def _maybe_rechunk_single_blob_paras(
     return [{"para_id": f"p{i:05d}", "text": p} for i, p in enumerate(out, start=1)]
 
 
+from typing import Any, Dict, List, Optional, Set, Tuple
+
 def run_harvest_then_reason_on_one_doc(
     doc_id: str,
     paras: List[Dict[str, str]],
@@ -271,7 +295,6 @@ def run_harvest_then_reason_on_one_doc(
     run_cfg: "RunConfig",
     llm_cfg: "LLMClientConfig",
 ) -> "LoopResult":
-
     assert isinstance(doc_id, str) and doc_id.strip(), "doc_id must be non-empty"
     assert isinstance(paras, list) and len(paras) > 0, "paras must be a non-empty list"
     assert getattr(atom, "atom_id", "").strip(), "AtomQuery.atom_id is empty"
@@ -279,7 +302,7 @@ def run_harvest_then_reason_on_one_doc(
     # -----------------------------
     # SINGLE SOURCE OF TRUTH
     # -----------------------------
-    debug = run_cfg.debug
+    debug = bool(getattr(run_cfg, "debug", False))
     # -----------------------------
 
     paras = _maybe_rechunk_single_blob_paras(paras)
@@ -288,25 +311,19 @@ def run_harvest_then_reason_on_one_doc(
     if paras:
         print(f"[moltie.debug] raw_para0_len={len((paras[0].get('text') or ''))}")
 
-
-    # Use the SAME debug variable
+    # Use SAME debug variable
     paras = _filter_front_matter(paras, min_keep=4, debug=debug)
-
     print(f"[moltie.debug] paras_after_front_matter_filter={len(paras)}")
-
 
     trace: List[Dict[str, Any]] = []
 
     if debug:
         print(f"[moltie.loop] HARVEST start doc_id={doc_id!r} atom_id={atom.atom_id!r} n_paras={len(paras)}")
-
-    if debug:
         print("[moltie.debug] raw paras:", len(paras), "sample lens:", [len((p.get("text") or "")) for p in paras[:3]])
 
-
-    window_size = max(1, int(run_cfg.window_size))
-    stride = max(1, int(run_cfg.stride))
-    memory_max_items = int(run_cfg.memory_max_items)
+    window_size = max(1, int(getattr(run_cfg, "window_size", 24)))
+    stride = max(1, int(getattr(run_cfg, "stride", 12)))
+    memory_max_items = int(getattr(run_cfg, "memory_max_items", 120))
 
     full_para_ids_in_order = [p["para_id"] for p in paras]
     full_para_map = {p["para_id"]: p["text"] for p in paras}
@@ -315,11 +332,9 @@ def run_harvest_then_reason_on_one_doc(
     harvested_para_ids: Set[str] = set()
     harvested_windows: List[Dict[str, Any]] = []
 
-    # --- ADDED: evidence_to_x accumulator (para-level evidence keys) ---
     # evidence_id format: f"{doc_id}:{para_id}"
     harvested_evidence_to_x: Dict[str, Set[str]] = {}
 
-    # --- ADDED: local helper to bind anchors -> matched_X (no external deps) ---
     def _evidence_to_x_from_verdict(_doc_id: str, _verdict: "Verdict") -> Dict[str, List[str]]:
         xs = [str(x).strip() for x in (getattr(_verdict, "matched_X", None) or []) if str(x).strip()]
         anchors = getattr(_verdict, "anchors", None) or []
@@ -334,12 +349,13 @@ def run_harvest_then_reason_on_one_doc(
 
     n = len(paras)
 
+    # Build explicit starts incl final window
     if n <= window_size:
         starts = [0]
     else:
         starts = list(range(0, n, stride))
         last_start = max(0, n - window_size)
-        if starts[-1] != last_start:
+        if last_start not in starts:
             starts.append(last_start)
         starts = sorted(set(starts))
 
@@ -378,37 +394,28 @@ def run_harvest_then_reason_on_one_doc(
             s = (s or "").replace("\n", " ").strip()
             return s[:n] + ("..." if len(s) > n else "")
 
-        if run_cfg.debug:
+        if debug:
             sent = evidence_pack["paras"] or []
             print("\n[moltie.forensic] ===== ABOUT TO CALL LLM =====")
-            print("[moltie.forensic] iter:", i, "doc_id:", doc_id, "atom_id:", atom.atom_id, "x_tests:", getattr(atom, "x_tests", None))
+            print("[moltie.forensic] win:", f"{start}:{end}", "doc_id:", doc_id, "atom_id:", atom.atom_id, "x_tests:", getattr(atom, "x_tests", None))
             print("[moltie.forensic] total_paras_in_doc:", len(paras), "paras_sent:", len(sent))
-            print("[moltie.forensic] retrieval_method:", (rr.retrieval or {}).get("method"), "picked_windows:", (rr.retrieval or {}).get("picked_windows"))
-
-            # para_ids we are sending (first 12)
+            print("[moltie.forensic] retrieval_method:", (evidence_pack.get("retrieval") or {}).get("method"))
             ids = [p.get("para_id") for p in sent[:12]]
             print("[moltie.forensic] sent_para_ids_head:", ids)
-
-            # show preview + lengths so we can see if we are sending mega blobs
             for p in sent[:3]:
                 pid = p.get("para_id")
                 txt = p.get("text") or ""
                 print(f"[moltie.forensic] para {pid} len={len(txt)} preview={_prev(txt, 240)}")
-
-            # if build_verifier_prompt embeds allowed ids, surface them
-            # (we don't parse JSON fully; just detect whether the allowed ids appear at all)
             print("[moltie.forensic] prompt_chars:", len(prompt))
             print("[moltie.forensic] prompt_head_350:\n", prompt[:350])
-
-            # quick sanity: do the para_ids we sent appear in the prompt at all?
-            # (if not, the model is NOT seeing the para list you think it is)
             missing_in_prompt = [pid for pid in ids if pid and (pid not in prompt)]
             print("[moltie.forensic] sent_para_ids_missing_in_prompt_head:", missing_in_prompt[:8])
-
             print("[moltie.forensic] ===============================\n")
 
-
         verdict = verify_with_ollama(prompt, llm_cfg)
+
+        # FIX: enforce matched_X strictly (centralized)
+        verdict = enforce_matched_x(verdict, atom_id=atom.atom_id, allowed_x=getattr(atom, "x_tests", []) or [])
 
         pack_para_map = {p["para_id"]: p["text"] for p in pack}
         ok, bad = _anchors_valid(verdict, pack_para_map)
@@ -416,13 +423,12 @@ def run_harvest_then_reason_on_one_doc(
         strong = _is_strong_for_harvest(verdict, run_cfg)
 
         if debug:
-            anchors = getattr(verdict, "anchors", None)
-            n_anchors = 0 if not anchors else len(anchors)
+            n_anchors = len(getattr(verdict, "anchors", None) or [])
             print(
                 f"[moltie.debug] win={start}:{end} "
-                f"relevant={verdict.relevant} "
-                f"precedent_score={verdict.precedent_score} "
-                f"confidence={verdict.confidence} "
+                f"relevant={getattr(verdict,'relevant',None)} "
+                f"precedent_score={getattr(verdict,'precedent_score',None)} "
+                f"confidence={getattr(verdict,'confidence',None)} "
                 f"anchors={n_anchors} anchors_ok={ok} strong={strong}"
             )
 
@@ -434,7 +440,6 @@ def run_harvest_then_reason_on_one_doc(
                 "verdict": verdict.to_dict(),
                 "anchors_ok": ok,
                 "anchors_bad": bad[:6],
-                # --- ADDED: include matched_X + evidence_to_x per-window for audit ---
                 "matched_X": list(getattr(verdict, "matched_X", None) or []),
                 "evidence_to_x": _evidence_to_x_from_verdict(doc_id, verdict),
             }
@@ -446,12 +451,11 @@ def run_harvest_then_reason_on_one_doc(
         if strong:
             harvested_verdicts.append(verdict)
             harvested_windows.append({"start": start, "end": end})
-            for a in verdict.anchors or []:
+            for a in (getattr(verdict, "anchors", None) or []):
                 pid = a.para_id if hasattr(a, "para_id") else a.get("para_id")
                 if pid:
                     harvested_para_ids.add(pid)
 
-            # --- ADDED: accumulate evidence_to_x for strong windows only ---
             m = _evidence_to_x_from_verdict(doc_id, verdict)
             for evid, xs in m.items():
                 harvested_evidence_to_x.setdefault(evid, set()).update(xs)
@@ -472,9 +476,7 @@ def run_harvest_then_reason_on_one_doc(
                 f"No strong anchored fragments found in sweep; "
                 f"n_paras={n} window_size={window_size} stride={stride} windows_scanned={total_windows}"
             ),
-
         )
-
         return LoopResult(verdict=None, negative_exit=nx, iters=1, trace=trace)
 
     harvested_paras_ordered = [
@@ -492,29 +494,28 @@ def run_harvest_then_reason_on_one_doc(
 
     prompt2 = build_verifier_prompt(atom=atom, evidence_pack=evidence_pack2, cfg=run_cfg)
     verdict2 = verify_with_ollama(prompt2, llm_cfg)
+    verdict2 = enforce_matched_x(verdict2, atom_id=atom.atom_id, allowed_x=getattr(atom, "x_tests", []) or [])
 
     mem_para_map = {p["para_id"]: p["text"] for p in harvested_paras_ordered}
     ok2, bad2 = _anchors_valid(verdict2, mem_para_map)
 
     if debug:
         print(
-            f"[moltie.debug] PASS-2 verdict: relevant={verdict2.relevant} "
-            f"precedent_score={verdict2.precedent_score} "
-            f"confidence={verdict2.confidence} "
-            f"anchors={len(verdict2.anchors or [])} anchors_ok={ok2}"
+            f"[moltie.debug] PASS-2 verdict: relevant={getattr(verdict2,'relevant',None)} "
+            f"precedent_score={getattr(verdict2,'precedent_score',None)} "
+            f"confidence={getattr(verdict2,'confidence',None)} "
+            f"anchors={len(getattr(verdict2,'anchors',None) or [])} anchors_ok={ok2}"
         )
 
     if not ok2:
+        # fall back to best harvested verdict (already anchors-ok)
         best = sorted(
             harvested_verdicts,
-            key=lambda v: (_nn_int(v.precedent_score), _nn_int(v.confidence)),
+            key=lambda v: (_nn_int(getattr(v, "precedent_score", 0)), _nn_int(getattr(v, "confidence", 0))),
             reverse=True,
         )[0]
-
         return LoopResult(verdict=best, negative_exit=None, iters=1, trace=trace)
 
-    # --- ADDED: attach consolidated evidence_to_x into trace tail for visibility ---
-    # This does NOT change return schema; it's only for debug/audit.
     if harvested_evidence_to_x:
         trace.append(
             {
@@ -527,6 +528,7 @@ def run_harvest_then_reason_on_one_doc(
         )
 
     return LoopResult(verdict=verdict2, negative_exit=None, iters=1, trace=trace)
+
 
 def run_agent_on_one_doc(
     doc_id: str,
@@ -543,7 +545,7 @@ def run_agent_on_one_doc(
     # --- E2E GUARD: fix the 'n_paras=1 huge blob' PDF extraction failure mode ---
     paras = _maybe_rechunk_single_blob_paras(paras)
 
-    # --- NEW: harvest mode shortcut (keeps old behavior intact) ---
+    # --- harvest mode shortcut ---
     if bool(getattr(run_cfg, "harvest_mode", False)):
         return run_harvest_then_reason_on_one_doc(doc_id, paras, atom, run_cfg, llm_cfg)
 
@@ -553,16 +555,18 @@ def run_agent_on_one_doc(
     best_score = -1
     plateau = 0
 
+    # FIX B: track visited windows precisely (start,end)
+    visited_windows: Set[Tuple[int, int]] = set()
+    # keep visited_starts as a coarse back-compat signal (optional)
     visited_starts: Set[int] = set()
 
     print(f"[moltie.loop] start doc_id={doc_id!r} atom_id={atom.atom_id!r} n_paras={len(paras)}")
 
-    window_size = getattr(run_cfg, "window_size", 24)
-    stride = getattr(run_cfg, "stride", 12)
-    top_windows = getattr(run_cfg, "top_windows", 3)
-    min_hits = getattr(run_cfg, "min_hits", 2)
+    window_size = int(getattr(run_cfg, "window_size", 24))
+    stride = int(getattr(run_cfg, "stride", 12))
+    top_windows = int(getattr(run_cfg, "top_windows", 3))
+    min_hits = int(getattr(run_cfg, "min_hits", 2))
 
-    # include the final window start (n - window_size) even if stride doesn't land on it
     n = len(paras)
     starts = list(range(0, max(1, n), max(1, stride)))
     if n > window_size:
@@ -572,11 +576,8 @@ def run_agent_on_one_doc(
     starts = sorted(set(starts))
     est_total_windows = max(1, len(starts))
 
-    # --- ADDED: evidence_to_x accumulator (para-level evidence keys) ---
-    # evidence_id format: f"{doc_id}:{para_id}"
     evidence_to_x_all: Dict[str, Set[str]] = {}
 
-    # --- ADDED: local helper to bind anchors -> matched_X (no external deps) ---
     def _evidence_to_x_from_verdict(_doc_id: str, _verdict: "Verdict") -> Dict[str, List[str]]:
         xs = [str(x).strip() for x in (getattr(_verdict, "matched_X", None) or []) if str(x).strip()]
         anchors = getattr(_verdict, "anchors", None) or []
@@ -589,29 +590,34 @@ def run_agent_on_one_doc(
             out.setdefault(evid, set()).update(xs)
         return {k: sorted(v) for k, v in out.items()}
 
-    for i in range(1, run_cfg.max_iters + 1):
+    for i in range(1, int(getattr(run_cfg, "max_iters", 3)) + 1):
         rr = retrieve_windowed_evidence(
             doc_id=doc_id,
             paras=paras,
             atom=atom,
-            k=run_cfg.k_chunks_per_doc,
+            k=int(getattr(run_cfg, "k_chunks_per_doc", 12)),
             min_hits=min_hits,
             window_size=window_size,
             stride=stride,
             top_windows=top_windows,
+            # FIX B: pass window-level memory
+            visited_windows=visited_windows,
+            # optional back-compat/coarse skip
             visited_starts=visited_starts,
             ensure_coverage=True,
         )
 
-        n_rr = len(rr.paras or [])
-        if n_rr == 0:
+        if len(rr.paras or []) == 0:
             print(f"[moltie.loop] iter={i} WARN retrieval returned 0 paras meta={rr.retrieval!r}")
 
         picked = rr.retrieval.get("picked_windows") or []
         for w in picked:
             s = w.get("start")
+            e = w.get("end")
             if isinstance(s, int):
                 visited_starts.add(s)
+            if isinstance(s, int) and isinstance(e, int):
+                visited_windows.add((s, e))
 
         evidence_pack = {"doc_id": rr.doc_id, "doc_meta": {}, "paras": rr.paras, "retrieval": rr.retrieval}
         prompt = build_verifier_prompt(atom=atom, evidence_pack=evidence_pack, cfg=run_cfg)
@@ -620,12 +626,12 @@ def run_agent_on_one_doc(
             print(f"[moltie.loop] iter={i} WARN atom_id not found in prompt prompt_hash={_h(prompt)}")
 
         verdict = verify_with_ollama(prompt, llm_cfg)
+        verdict = enforce_matched_x(verdict, atom_id=atom.atom_id, allowed_x=getattr(atom, "x_tests", []) or [])
 
         if not getattr(verdict, "atom_id", "").strip():
             print(f"[moltie.loop] iter={i} BAD_VERDICT missing atom_id prompt_hash={_h(prompt)} verdict={verdict.to_dict()}")
             raise RuntimeError("LLM returned Verdict without atom_id")
 
-        # Anchor verification: verbatim + para_id
         para_map = {p["para_id"]: p["text"] for p in evidence_pack["paras"]}
         ok, bad = _anchors_valid(verdict, para_map)
 
@@ -636,7 +642,6 @@ def run_agent_on_one_doc(
                     "retrieval": rr.retrieval,
                     "verdict": verdict.to_dict(),
                     "error": {"type": "invalid_anchors", "details": bad[:6]},
-                    # --- ADDED: include matched_X + evidence_to_x even for failures (useful for diagnosing) ---
                     "matched_X": list(getattr(verdict, "matched_X", None) or []),
                     "evidence_to_x": _evidence_to_x_from_verdict(doc_id, verdict),
                 }
@@ -644,10 +649,9 @@ def run_agent_on_one_doc(
             print(f"[moltie.loop] INVALID_ANCHORS iter={i} bad={bad[:3]} -> continuing")
 
             plateau += 1
-            atom = refine_query(atom, verdict, i).atom
+            # (keep refine logic consistent: only refine if anchors are valid; so do nothing here)
             continue
 
-        # --- ADDED: per-iter evidence_to_x mapping (anchored only) ---
         evidence_to_x_step = _evidence_to_x_from_verdict(doc_id, verdict)
         for evid, xs in evidence_to_x_step.items():
             evidence_to_x_all.setdefault(evid, set()).update(xs)
@@ -657,7 +661,6 @@ def run_agent_on_one_doc(
                 "iter": i,
                 "retrieval": rr.retrieval,
                 "verdict": verdict.to_dict(),
-                # --- ADDED: audit visibility ---
                 "matched_X": list(getattr(verdict, "matched_X", None) or []),
                 "evidence_to_x": evidence_to_x_step,
             }
@@ -670,32 +673,32 @@ def run_agent_on_one_doc(
             f"anchors={len(getattr(verdict,'anchors',[]) or [])} quality={q}"
         )
 
-        if best is None or q >= (best_quality + int(run_cfg.eps_improve)):
+        if best is None or q >= (best_quality + int(getattr(run_cfg, "eps_improve", 0))):
             best, best_quality = verdict, q
             best_score = max(best_score, _nn_int(getattr(verdict, "precedent_score", 0)))
             plateau = 0
         else:
             plateau += 1
 
-        conf = verdict.confidence
-        if 0 <= run_cfg.thresh_conf <= 1:
-            conf = verdict.confidence / 100.0
+        conf = getattr(verdict, "confidence", 0)
+        thresh_conf = getattr(run_cfg, "thresh_conf", 1)
+        if 0 <= thresh_conf <= 1:
+            conf = conf / 100.0
 
         anchors = getattr(verdict, "anchors", None) or []
         anchors_len = len(anchors)
 
         if (
-            verdict.relevant
-            and verdict.precedent_score >= run_cfg.thresh_score
-            and conf >= run_cfg.thresh_conf
-            and anchors_len >= run_cfg.anchors_required
+            bool(getattr(verdict, "relevant", False))
+            and _nn_int(getattr(verdict, "precedent_score", 0)) >= int(getattr(run_cfg, "thresh_score", 1))
+            and conf >= thresh_conf
+            and anchors_len >= int(getattr(run_cfg, "anchors_required", 1))
         ):
             print(
-                f"[moltie.loop] ACCEPT iter={i} score={verdict.precedent_score} "
-                f"conf={verdict.confidence} anchors={anchors_len}"
+                f"[moltie.loop] ACCEPT iter={i} score={getattr(verdict,'precedent_score',None)} "
+                f"conf={getattr(verdict,'confidence',None)} anchors={anchors_len}"
             )
 
-            # --- ADDED: attach consolidated evidence_to_x into trace tail for visibility ---
             if evidence_to_x_all:
                 trace.append(
                     {
@@ -709,31 +712,35 @@ def run_agent_on_one_doc(
 
             return LoopResult(verdict=verdict, negative_exit=None, iters=i, trace=trace)
 
-        if plateau >= run_cfg.plateau_p:
-            if len(visited_starts) < est_total_windows:
+        plateau_p = int(getattr(run_cfg, "plateau_p", 2))
+        if plateau >= plateau_p:
+            # FIX B: compare against total windows using window-level memory
+            if len(visited_windows) < est_total_windows:
                 print(
                     f"[moltie.loop] PLATEAU iter={i} but continuing for coverage "
-                    f"(plateau={plateau} visited_windows={len(visited_starts)}/{est_total_windows})"
+                    f"(plateau={plateau} visited_windows={len(visited_windows)}/{est_total_windows})"
                 )
                 plateau = 0
-                atom = refine_query(atom, verdict, i).atom
+
+                # refine query only when we have valid anchors (we do here)
+                if anchors_len > 0:
+                    atom = refine_query(atom, verdict, i).atom
                 continue
 
             print(
                 f"[moltie.loop] EXIT plateau iter={i} plateau={plateau} "
-                f"best_quality={best_quality} best_score={best_score} visited_windows={len(visited_starts)}"
+                f"best_quality={best_quality} best_score={best_score} visited_windows={len(visited_windows)}"
             )
             nx = NegativeExit.from_best(
                 atom_id=atom.atom_id,
                 reason="plateau",
                 best=best,
                 note=(
-                    f"Plateau after coverage; visited_windows={len(visited_starts)}/"
+                    f"Plateau after coverage; visited_windows={len(visited_windows)}/"
                     f"{est_total_windows} best_quality={best_quality} best_score={best_score}"
                 ),
             )
 
-            # --- ADDED: attach consolidated evidence_to_x into trace tail for visibility ---
             if evidence_to_x_all:
                 trace.append(
                     {
@@ -747,9 +754,11 @@ def run_agent_on_one_doc(
 
             return LoopResult(verdict=None, negative_exit=nx, iters=i, trace=trace)
 
-        atom = refine_query(atom, verdict, i).atom
+        # refine when we have valid anchors
+        if anchors_len > 0:
+            atom = refine_query(atom, verdict, i).atom
 
-    print(f"[moltie.loop] EXIT exhausted iters={run_cfg.max_iters} best_quality={best_quality} best_score={best_score}")
+    print(f"[moltie.loop] EXIT exhausted iters={getattr(run_cfg,'max_iters',None)} best_quality={best_quality} best_score={best_score}")
     nx = NegativeExit.from_best(
         atom_id=atom.atom_id,
         reason="exhausted",
@@ -757,7 +766,6 @@ def run_agent_on_one_doc(
         note=f"Max iters reached; best_quality={best_quality} best_score={best_score}",
     )
 
-    # --- ADDED: attach consolidated evidence_to_x into trace tail for visibility ---
     if evidence_to_x_all:
         trace.append(
             {
@@ -769,4 +777,4 @@ def run_agent_on_one_doc(
             }
         )
 
-    return LoopResult(verdict=None, negative_exit=nx, iters=run_cfg.max_iters, trace=trace)
+    return LoopResult(verdict=None, negative_exit=nx, iters=int(getattr(run_cfg, "max_iters", 3)), trace=trace)
