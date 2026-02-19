@@ -28,7 +28,7 @@ This module defines the only allowed shape of a legal verdict in Moltie.
 All LLM outputs must pass through Verdict.from_dict().
 """
 
-UseMode = Literal["support", "contrast", "harmful"]
+UseMode = Literal["support", "contrast", "verify", "harmful"]
 Party = Literal["claimant", "respondent", "mixed", "unclear"]
 AppealOutcome = Literal["allowed", "dismissed", "remitted", "mixed", "unknown"]
 
@@ -158,7 +158,7 @@ class AnchorValidator:
 
 
 class VerdictValidator:
-    USE_MODES = {"support", "contrast", "harmful"}
+    USE_MODES = {"support", "contrast", "verify", "harmful"}
     PARTIES = {"claimant", "respondent", "mixed", "unclear"}
     OUTCOMES = {"allowed", "dismissed", "remitted", "mixed", "unknown"}
 
@@ -276,8 +276,8 @@ class VerdictValidator:
 
         if not rel_bool:
             # irrelevant verdict must be contrast-only, no anchors, low score
-            if um != "contrast":
-                raise ValueError("If relevant=false then use_mode must be 'contrast'")
+            if um not in ("contrast", "verify"):
+                raise ValueError("If relevant=false then use_mode must be 'contrast' or 'verify'")
             if anchors:
                 raise ValueError("If relevant=false then anchors must be []")
             ps = int(d.get("precedent_score", 0) or 0)
