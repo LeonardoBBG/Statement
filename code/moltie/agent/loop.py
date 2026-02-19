@@ -529,7 +529,6 @@ def run_harvest_then_reason_on_one_doc(
 
     return LoopResult(verdict=verdict2, negative_exit=None, iters=1, trace=trace)
 
-
 def run_agent_on_one_doc(
     doc_id: str,
     paras: List[Dict[str, str]],
@@ -555,7 +554,7 @@ def run_agent_on_one_doc(
     best_score = -1
     plateau = 0
 
-    # FIX B: track visited windows precisely (start,end)
+    # Track visited windows precisely (start,end)
     visited_windows: Set[Tuple[int, int]] = set()
     # keep visited_starts as a coarse back-compat signal (optional)
     visited_starts: Set[int] = set()
@@ -576,33 +575,30 @@ def run_agent_on_one_doc(
     starts = sorted(set(starts))
     est_total_windows = max(1, len(starts))
 
+    # evidence_id format: f"{doc_id}:{para_id}"
     evidence_to_x_all: Dict[str, Set[str]] = {}
 
-    def _evidence_to_x_from_verdict(_doc_id: str, _verdict: "Verdict") -> Dict[str, List[str]]:
-        xs = [str(x).strip() for x in (getattr(_verdict, "matched_X", None) or []) if str(x).strip()]
-        anchors = getattr(_verdict, "anchors", None) or []
-        out: Dict[str, Set[str]] = {}
-        for a in anchors:
-            pid = a.para_id if hasattr(a, "para_id") else a.get("para_id")
-            if not pid:
-                continue
-            evid = f"{_doc_id}:{str(pid).strip()}"
-            out.setdefault(evid, set()).update(xs)
-        return {k: sorted(v) for k, v in out.items()}
+    max_iters = int(getattr(run_cfg, "max_iters", 3))
+    eps_improve = int(getattr(run_cfg, "eps_improve", 0))
+    plateau_p = int(getattr(run_cfg, "plateau_p", 2))
 
-    for i in range(1, int(getattr(run_cfg, "max_iters", 3)) + 1):
+    thresh_score = int(getattr(run_cfg, "thresh_score", 1))
+    thresh_conf = getattr(run_cfg, "thresh_conf", 1)
+    anchors_required = int(getattr(run_cfg, "anchors_required", 1))
+
+    k_chunks_per_doc = int(getattr(run_cfg, "k_chunks_per_doc", 12))
+
+    for i in range(1, max_iters + 1):
         rr = retrieve_windowed_evidence(
             doc_id=doc_id,
             paras=paras,
             atom=atom,
-            k=int(getattr(run_cfg, "k_chunks_per_doc", 12)),
+            k=k_chunks_per_doc,
             min_hits=min_hits,
             window_size=window_size,
             stride=stride,
             top_windows=top_windows,
-            # FIX B: pass window-level memory
             visited_windows=visited_windows,
-            # optional back-compat/coarse skip
             visited_starts=visited_starts,
             ensure_coverage=True,
         )
@@ -647,11 +643,10 @@ def run_agent_on_one_doc(
                 }
             )
             print(f"[moltie.loop] INVALID_ANCHORS iter={i} bad={bad[:3]} -> continuing")
-
             plateau += 1
-            # (keep refine logic consistent: only refine if anchors are valid; so do nothing here)
             continue
 
+        # accumulate evidence_to_x at PARA granularity
         evidence_to_x_step = _evidence_to_x_from_verdict(doc_id, verdict)
         for evid, xs in evidence_to_x_step.items():
             evidence_to_x_all.setdefault(evid, set()).update(xs)
@@ -673,26 +668,27 @@ def run_agent_on_one_doc(
             f"anchors={len(getattr(verdict,'anchors',[]) or [])} quality={q}"
         )
 
-        if best is None or q >= (best_quality + int(getattr(run_cfg, "eps_improve", 0))):
+        if best is None or q >= (best_quality + eps_improve):
             best, best_quality = verdict, q
             best_score = max(best_score, _nn_int(getattr(verdict, "precedent_score", 0)))
             plateau = 0
         else:
             plateau += 1
 
-        conf = getattr(verdict, "confidence", 0)
-        thresh_conf = getattr(run_cfg, "thresh_conf", 1)
+        # normalize thresh_conf to 0..1 if given as fraction
+        conf_v = getattr(verdict, "confidence", 0)
         if 0 <= thresh_conf <= 1:
-            conf = conf / 100.0
+            conf_v = conf_v / 100.0
 
         anchors = getattr(verdict, "anchors", None) or []
         anchors_len = len(anchors)
 
+        # ACCEPT gate
         if (
             bool(getattr(verdict, "relevant", False))
-            and _nn_int(getattr(verdict, "precedent_score", 0)) >= int(getattr(run_cfg, "thresh_score", 1))
-            and conf >= thresh_conf
-            and anchors_len >= int(getattr(run_cfg, "anchors_required", 1))
+            and _nn_int(getattr(verdict, "precedent_score", 0)) >= thresh_score
+            and conf_v >= thresh_conf
+            and anchors_len >= anchors_required
         ):
             print(
                 f"[moltie.loop] ACCEPT iter={i} score={getattr(verdict,'precedent_score',None)} "
@@ -712,9 +708,9 @@ def run_agent_on_one_doc(
 
             return LoopResult(verdict=verdict, negative_exit=None, iters=i, trace=trace)
 
-        plateau_p = int(getattr(run_cfg, "plateau_p", 2))
+        # PLATEAU gate
         if plateau >= plateau_p:
-            # FIX B: compare against total windows using window-level memory
+            # keep scanning until we’ve covered the doc (window-level memory)
             if len(visited_windows) < est_total_windows:
                 print(
                     f"[moltie.loop] PLATEAU iter={i} but continuing for coverage "
@@ -722,7 +718,7 @@ def run_agent_on_one_doc(
                 )
                 plateau = 0
 
-                # refine query only when we have valid anchors (we do here)
+                # refine only when we have anchors (we do here)
                 if anchors_len > 0:
                     atom = refine_query(atom, verdict, i).atom
                 continue
@@ -731,6 +727,7 @@ def run_agent_on_one_doc(
                 f"[moltie.loop] EXIT plateau iter={i} plateau={plateau} "
                 f"best_quality={best_quality} best_score={best_score} visited_windows={len(visited_windows)}"
             )
+
             nx = NegativeExit.from_best(
                 atom_id=atom.atom_id,
                 reason="plateau",
@@ -739,6 +736,8 @@ def run_agent_on_one_doc(
                     f"Plateau after coverage; visited_windows={len(visited_windows)}/"
                     f"{est_total_windows} best_quality={best_quality} best_score={best_score}"
                 ),
+                gold_adjacent=False,
+                gold_reason=None,
             )
 
             if evidence_to_x_all:
@@ -758,12 +757,34 @@ def run_agent_on_one_doc(
         if anchors_len > 0:
             atom = refine_query(atom, verdict, i).atom
 
-    print(f"[moltie.loop] EXIT exhausted iters={getattr(run_cfg,'max_iters',None)} best_quality={best_quality} best_score={best_score}")
+    # --------------------------
+    # EXHAUSTED exit + GOLD flag
+    # --------------------------
+    print(
+        f"[moltie.loop] EXIT exhausted iters={getattr(run_cfg,'max_iters',None)} "
+        f"best_quality={best_quality} best_score={best_score}"
+    )
+
+    gold_adjacent = False
+    gold_reason = None
+
+    if best is not None:
+        ps = _nn_int(getattr(best, "precedent_score", 0))
+        conf = _nn_int(getattr(best, "confidence", 0))
+        anchors_len = len(getattr(best, "anchors", []) or [])
+        rel = bool(getattr(best, "relevant", False))
+
+        if (not rel) and ps >= 75 and conf >= 80 and anchors_len >= 2:
+            gold_adjacent = True
+            gold_reason = "strong_doctrinal_signal_without_atom_alignment"
+
     nx = NegativeExit.from_best(
         atom_id=atom.atom_id,
         reason="exhausted",
         best=best,
         note=f"Max iters reached; best_quality={best_quality} best_score={best_score}",
+        gold_adjacent=gold_adjacent,
+        gold_reason=gold_reason,
     )
 
     if evidence_to_x_all:
@@ -777,4 +798,4 @@ def run_agent_on_one_doc(
             }
         )
 
-    return LoopResult(verdict=None, negative_exit=nx, iters=int(getattr(run_cfg, "max_iters", 3)), trace=trace)
+    return LoopResult(verdict=None, negative_exit=nx, iters=max_iters, trace=trace)

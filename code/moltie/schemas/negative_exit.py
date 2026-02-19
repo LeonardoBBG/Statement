@@ -14,10 +14,15 @@ class NegativeExit:
     """
     A structured 'nothing to see here' outcome for one atom query.
     """
+
     atom_id: str
     reason: NegReason
     best_attempt: Optional[Dict[str, Any]] = None   # store Verdict dict (or None)
     note: str = ""
+
+    # ---- NEW: Gold-adjacent advisory layer ----
+    gold_adjacent: bool = False
+    gold_reason: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -25,20 +30,32 @@ class NegativeExit:
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> "NegativeExit":
         NegativeExitValidator.validate(d)
+
         return NegativeExit(
             atom_id=str(d["atom_id"]).strip(),
             reason=d["reason"],
             best_attempt=d.get("best_attempt"),
             note=str(d.get("note", "")).strip(),
+            gold_adjacent=bool(d.get("gold_adjacent", False)),
+            gold_reason=d.get("gold_reason"),
         )
 
     @staticmethod
-    def from_best(atom_id: str, reason: NegReason, best: Optional[Verdict], note: str = "") -> "NegativeExit":
+    def from_best(
+        atom_id: str,
+        reason: NegReason,
+        best: Optional[Verdict],
+        note: str = "",
+        gold_adjacent: bool = False,
+        gold_reason: Optional[str] = None,
+    ) -> "NegativeExit":
         return NegativeExit(
             atom_id=atom_id,
             reason=reason,
             best_attempt=(best.to_dict() if best is not None else None),
             note=note.strip(),
+            gold_adjacent=gold_adjacent,
+            gold_reason=gold_reason,
         )
 
 
@@ -49,6 +66,7 @@ class NegativeExitValidator:
     def validate(d: Dict[str, Any]) -> None:
         if not isinstance(d, dict):
             raise TypeError("NegativeExit must be a dict")
+
         for k in ("atom_id", "reason"):
             if k not in d:
                 raise ValueError(f"NegativeExit missing required field: {k}")
@@ -64,5 +82,12 @@ class NegativeExitValidator:
         if ba is not None:
             if not isinstance(ba, dict):
                 raise ValueError("NegativeExit.best_attempt must be a dict if present")
-            # ensure it's at least a valid Verdict shape
             VerdictValidator.validate(ba)
+
+        # --- NEW: gold validation ---
+        if "gold_adjacent" in d and not isinstance(d["gold_adjacent"], bool):
+            raise ValueError("NegativeExit.gold_adjacent must be bool")
+
+        if "gold_reason" in d and d["gold_reason"] is not None:
+            if not isinstance(d["gold_reason"], str):
+                raise ValueError("NegativeExit.gold_reason must be str or None")
