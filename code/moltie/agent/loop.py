@@ -728,6 +728,27 @@ def run_agent_on_one_doc(
                 f"best_quality={best_quality} best_score={best_score} visited_windows={len(visited_windows)}"
             )
 
+            print(
+                f"[moltie.loop] EXIT plateau iter={i} plateau={plateau} "
+                f"best_quality={best_quality} best_score={best_score} visited_windows={len(visited_windows)}"
+            )
+
+            # -------------------------------------------------
+            # GOLD-ADJACENT SIGNAL (strictly advisory layer)
+            # -------------------------------------------------
+            gold_adjacent = False
+            gold_reason = None
+
+            if best is not None:
+                ps = _nn_int(getattr(best, "precedent_score", 0))
+                conf = _nn_int(getattr(best, "confidence", 0))
+                anchors_len = len(getattr(best, "anchors", []) or [])
+                rel = bool(getattr(best, "relevant", False))
+
+                if (not rel) and ps >= 75 and conf >= 80 and anchors_len >= 2:
+                    gold_adjacent = True
+                    gold_reason = "strong_doctrinal_signal_without_atom_alignment"
+
             nx = NegativeExit.from_best(
                 atom_id=atom.atom_id,
                 reason="plateau",
@@ -736,8 +757,8 @@ def run_agent_on_one_doc(
                     f"Plateau after coverage; visited_windows={len(visited_windows)}/"
                     f"{est_total_windows} best_quality={best_quality} best_score={best_score}"
                 ),
-                gold_adjacent=False,
-                gold_reason=None,
+                gold_adjacent=gold_adjacent,
+                gold_reason=gold_reason,
             )
 
             if evidence_to_x_all:
