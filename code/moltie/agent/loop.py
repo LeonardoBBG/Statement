@@ -15,7 +15,7 @@ from ..schemas.verdict import Verdict
 
 from .refine import refine_query
 from .retrieve import retrieve_windowed_evidence
-
+from .semantic_memory import SemanticMemory
 
 @dataclass
 class LoopResult:
@@ -78,18 +78,41 @@ def _is_junk_para(text: str) -> bool:
     return False
 
 def enforce_matched_x(verdict: "Verdict", atom_id: str, allowed_x: list[str]) -> "Verdict":
+    """
+    Hard contract enforcement for matched_X + relevant.
+
+    Rules:
+    - matched_X must be subset of allowed_x
+    - if anchors are empty => relevant must be False and matched_X must be []
+    - if relevant=True and we have >=1 anchors, but matched_X doesn't include atom_id
+      (often due to model outputting junk IDs), we REPAIR matched_X to [atom_id]
+      as a formatting/compliance fix.
+    """
     allowed = {str(x).strip() for x in (allowed_x or []) if str(x).strip()}
 
-    mx = [str(x).strip() for x in (getattr(verdict, "matched_X", None) or []) if str(x).strip()]
-    mx2 = [x for x in mx if x in allowed]
+    # Normalize model output
+    mx_raw = [str(x).strip() for x in (getattr(verdict, "matched_X", None) or []) if str(x).strip()]
+    mx2 = [x for x in mx_raw if x in allowed]
 
-    # If the model says relevant=True but matched_X doesn't include the atom, force non-relevant
+    anchors = getattr(verdict, "anchors", None) or []
+    anchors_len = len(anchors)
+
     relevant2 = bool(getattr(verdict, "relevant", False))
-    if relevant2 and atom_id and (atom_id not in mx2):
+
+    # If there are no anchors, it cannot be relevant.
+    if anchors_len <= 0:
         relevant2 = False
         mx2 = []
 
-    # frozen dataclass => create a new instance
+    # If it claims relevant and has anchors, but matched_X is wrong/missing, repair it.
+    # This is a compliance repair, not a semantic inference.
+    elif relevant2 and atom_id and (atom_id in allowed) and (atom_id not in mx2):
+        mx2 = [atom_id]
+
+    # If not relevant, matched_X must be empty.
+    if not relevant2:
+        mx2 = []
+
     return replace(verdict, matched_X=mx2, relevant=relevant2)
 
 
@@ -315,6 +338,13 @@ def run_harvest_then_reason_on_one_doc(
     paras = _filter_front_matter(paras, min_keep=4, debug=debug)
     print(f"[moltie.debug] paras_after_front_matter_filter={len(paras)}")
 
+    # -----------------------------
+    # SEMANTIC MEMORY (snap-to-verbatim)
+    # -----------------------------
+    # NOTE: requires `from .semantic_memory import SemanticMemory` at module scope.
+    sem = SemanticMemory()
+    sem.build(paras)
+
     trace: List[Dict[str, Any]] = []
 
     if debug:
@@ -417,7 +447,13 @@ def run_harvest_then_reason_on_one_doc(
         # FIX: enforce matched_X strictly (centralized)
         verdict = enforce_matched_x(verdict, atom_id=atom.atom_id, allowed_x=getattr(atom, "x_tests", []) or [])
 
+        # -----------------------------
+        # SEMANTIC REPAIR BEFORE validation (PASS-1)
+        # -----------------------------
         pack_para_map = {p["para_id"]: p["text"] for p in pack}
+        allowed_para_ids = set(pack_para_map.keys())
+        verdict, repaired_n = sem.repair_verdict_anchors(verdict, allowed_para_ids=allowed_para_ids)
+
         ok, bad = _anchors_valid(verdict, pack_para_map)
 
         strong = _is_strong_for_harvest(verdict, run_cfg)
@@ -429,7 +465,7 @@ def run_harvest_then_reason_on_one_doc(
                 f"relevant={getattr(verdict,'relevant',None)} "
                 f"precedent_score={getattr(verdict,'precedent_score',None)} "
                 f"confidence={getattr(verdict,'confidence',None)} "
-                f"anchors={n_anchors} anchors_ok={ok} strong={strong}"
+                f"anchors={n_anchors} anchors_ok={ok} strong={strong} repaired={repaired_n}"
             )
 
         trace.append(
@@ -442,6 +478,7 @@ def run_harvest_then_reason_on_one_doc(
                 "anchors_bad": bad[:6],
                 "matched_X": list(getattr(verdict, "matched_X", None) or []),
                 "evidence_to_x": _evidence_to_x_from_verdict(doc_id, verdict),
+                "semantic_repaired_anchors": repaired_n,
             }
         )
 
@@ -496,7 +533,13 @@ def run_harvest_then_reason_on_one_doc(
     verdict2 = verify_with_ollama(prompt2, llm_cfg)
     verdict2 = enforce_matched_x(verdict2, atom_id=atom.atom_id, allowed_x=getattr(atom, "x_tests", []) or [])
 
+    # -----------------------------
+    # SEMANTIC REPAIR BEFORE validation (PASS-2)
+    # -----------------------------
     mem_para_map = {p["para_id"]: p["text"] for p in harvested_paras_ordered}
+    allowed_para_ids2 = set(mem_para_map.keys())
+    verdict2, repaired2_n = sem.repair_verdict_anchors(verdict2, allowed_para_ids=allowed_para_ids2)
+
     ok2, bad2 = _anchors_valid(verdict2, mem_para_map)
 
     if debug:
@@ -504,7 +547,7 @@ def run_harvest_then_reason_on_one_doc(
             f"[moltie.debug] PASS-2 verdict: relevant={getattr(verdict2,'relevant',None)} "
             f"precedent_score={getattr(verdict2,'precedent_score',None)} "
             f"confidence={getattr(verdict2,'confidence',None)} "
-            f"anchors={len(getattr(verdict2,'anchors',None) or [])} anchors_ok={ok2}"
+            f"anchors={len(getattr(verdict2,'anchors',None) or [])} anchors_ok={ok2} repaired={repaired2_n}"
         )
 
     if not ok2:
@@ -528,7 +571,6 @@ def run_harvest_then_reason_on_one_doc(
         )
 
     return LoopResult(verdict=verdict2, negative_exit=None, iters=1, trace=trace)
-
 def run_agent_on_one_doc(
     doc_id: str,
     paras: List[Dict[str, str]],
@@ -547,6 +589,13 @@ def run_agent_on_one_doc(
     # --- harvest mode shortcut ---
     if bool(getattr(run_cfg, "harvest_mode", False)):
         return run_harvest_then_reason_on_one_doc(doc_id, paras, atom, run_cfg, llm_cfg)
+
+    # -----------------------------
+    # SEMANTIC MEMORY (snap-to-verbatim)
+    # -----------------------------
+    # NOTE: requires `from .semantic_memory import SemanticMemory` at module scope.
+    sem = SemanticMemory()
+    sem.build(paras)
 
     trace: List[Dict[str, Any]] = []
     best: Optional[Verdict] = None
@@ -628,7 +677,13 @@ def run_agent_on_one_doc(
             print(f"[moltie.loop] iter={i} BAD_VERDICT missing atom_id prompt_hash={_h(prompt)} verdict={verdict.to_dict()}")
             raise RuntimeError("LLM returned Verdict without atom_id")
 
+        # -----------------------------
+        # SEMANTIC REPAIR (snap-to-verbatim) BEFORE anchor validation
+        # -----------------------------
         para_map = {p["para_id"]: p["text"] for p in evidence_pack["paras"]}
+        allowed_para_ids = set(para_map.keys())
+        verdict, repaired_n = sem.repair_verdict_anchors(verdict, allowed_para_ids=allowed_para_ids)
+
         ok, bad = _anchors_valid(verdict, para_map)
 
         if not ok:
@@ -640,9 +695,10 @@ def run_agent_on_one_doc(
                     "error": {"type": "invalid_anchors", "details": bad[:6]},
                     "matched_X": list(getattr(verdict, "matched_X", None) or []),
                     "evidence_to_x": _evidence_to_x_from_verdict(doc_id, verdict),
+                    "semantic_repaired_anchors": repaired_n,
                 }
             )
-            print(f"[moltie.loop] INVALID_ANCHORS iter={i} bad={bad[:3]} -> continuing")
+            print(f"[moltie.loop] INVALID_ANCHORS iter={i} repaired={repaired_n} bad={bad[:3]} -> continuing")
             plateau += 1
             continue
 
@@ -658,6 +714,7 @@ def run_agent_on_one_doc(
                 "verdict": verdict.to_dict(),
                 "matched_X": list(getattr(verdict, "matched_X", None) or []),
                 "evidence_to_x": evidence_to_x_step,
+                "semantic_repaired_anchors": repaired_n,
             }
         )
 

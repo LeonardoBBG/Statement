@@ -243,6 +243,7 @@ class SemanticMemory:
         # cache: quote_hash -> list of candidate item indices
         self._query_cache: Dict[str, List[int]] = {}
 
+    
     def build(self, paras: List[Dict[str, str]]) -> None:
         self.items = []
         self._para_text = {p["para_id"]: (p.get("text") or "") for p in (paras or []) if p.get("para_id")}
@@ -265,6 +266,15 @@ class SemanticMemory:
         self._query_cache.clear()
 
     def _query_indices(self, text: str) -> List[int]:
+        """
+        Return top-k candidate chunk indices for the given query text.
+
+        Keeps existing public contract: returns List[int].
+
+        Also caches similarity scores for the returned indices in a side-cache:
+            self._query_cache_scores[key] = List[Tuple[int, float]]
+        so downstream logic can apply thresholds without recomputing sims.
+        """
         if not self.items or self._vecs is None:
             return []
 
@@ -272,16 +282,60 @@ class SemanticMemory:
         if key in self._query_cache:
             return self._query_cache[key]
 
+        # Embed query
         qv = self.embedder.embed([text])[0]
+        if qv is None:
+            self._query_cache[key] = []
+            # side cache (optional)
+            if not hasattr(self, "_query_cache_scores"):
+                setattr(self, "_query_cache_scores", {})
+            self._query_cache_scores[key] = []
+            return []
 
-        sims: List[float] = []
-        for i in range(self._vecs.shape[0]):
-            sims.append(_safe_cosine(qv, self._vecs[i]))
+        V = self._vecs
+        if V.size == 0:
+            self._query_cache[key] = []
+            if not hasattr(self, "_query_cache_scores"):
+                setattr(self, "_query_cache_scores", {})
+            self._query_cache_scores[key] = []
+            return []
 
-        idxs = sorted(range(len(sims)), key=lambda i: sims[i], reverse=True)[: self.top_k]
+        # Vectorized cosine similarity:
+        # sims[i] = dot(qv, V[i]) / (||qv|| * ||V[i]||)
+        q_norm = float(np.linalg.norm(qv))
+        if q_norm <= 0.0:
+            self._query_cache[key] = []
+            if not hasattr(self, "_query_cache_scores"):
+                setattr(self, "_query_cache_scores", {})
+            self._query_cache_scores[key] = []
+            return []
+
+        v_norms = np.linalg.norm(V, axis=1)
+        denom = (q_norm * v_norms)
+        denom = np.where(denom > 0.0, denom, 1.0)  # avoid div-by-zero
+        sims = (V @ qv) / denom
+
+        # Top-k indices
+        k = max(1, int(self.top_k))
+        if sims.shape[0] <= k:
+            idxs = list(range(int(sims.shape[0])))
+            idxs.sort(key=lambda i: float(sims[i]), reverse=True)
+        else:
+            # argpartition for speed, then sort those k
+            top = np.argpartition(-sims, kth=k - 1)[:k]
+            idxs = [int(i) for i in top]
+            idxs.sort(key=lambda i: float(sims[i]), reverse=True)
+
         self._query_cache[key] = idxs
+
+        # Side-cache scores (optional but useful for thresholding later)
+        if not hasattr(self, "_query_cache_scores"):
+            setattr(self, "_query_cache_scores", {})
+        self._query_cache_scores[key] = [(i, float(sims[i])) for i in idxs]
+
         return idxs
 
+    
     def snap_anchor(
         self,
         *,
@@ -291,41 +345,82 @@ class SemanticMemory:
     ) -> Optional[Tuple[str, str]]:
         """
         Returns (para_id, verbatim_quote) or None.
-        Default behaviour: prefer same para_id; optionally enforce allowed_para_ids.
+
+        Strategy:
+        1) Enforce allowed_para_ids (hard gate).
+        2) Try snap within the provided para_id first.
+        3) If not found, query semantic memory for similar chunks.
+        - Optionally prefer same para_id ordering.
+        - Apply a similarity threshold when crossing to other para_ids to prevent drift.
+        4) For each candidate para, attempt deterministic snap-to-verbatim.
+
+        Note: Requires _query_indices() to have populated self._query_cache_scores (optional).
+        If scores cache is absent, we conservatively allow the search but still rely on snap-to-verbatim.
         """
         if not quote:
             return None
 
-        if allowed_para_ids is not None and para_id and para_id not in allowed_para_ids:
+        pid0 = (para_id or "").strip()
+
+        # Hard gate: if caller specified allowed ids and the requested para isn't allowed, don't move.
+        if allowed_para_ids is not None and pid0 and pid0 not in allowed_para_ids:
             return None
 
-        para_txt = self._para_text.get(para_id, "")
-        snapped = _best_substring_snap(quote, para_txt)
-        if snapped:
-            return (para_id, snapped)
+        # 1) Same-para snap first (best precision)
+        if pid0:
+            para_txt = self._para_text.get(pid0, "")
+            snapped = _best_substring_snap(quote, para_txt)
+            if snapped:
+                return (pid0, snapped)
 
+        # 2) Semantic candidates
         idxs = self._query_indices(quote)
         if not idxs:
             return None
 
-        ordered = idxs
-        if self.prefer_same_para and para_id:
-            ordered = sorted(
-                idxs,
-                key=lambda i: (0 if self.items[i].para_id == para_id else 1, i),
-            )
+        # Pull scores if available (populated by _query_indices)
+        key = _h(quote)
+        scored: List[Tuple[int, float]] = []
+        if hasattr(self, "_query_cache_scores"):
+            try:
+                scored = list(getattr(self, "_query_cache_scores").get(key, []))
+            except Exception:
+                scored = []
+
+        score_map: Dict[int, float] = {i: s for i, s in scored} if scored else {}
+
+        # Similarity threshold for crossing para boundaries.
+        # With TF-IDF cosine, 0.80 is a decent "this is about the same sentence" gate.
+        # Tune later if needed.
+        cross_para_min_sim = 0.80
+
+        # Order indices: prefer same para_id if requested, then by similarity (if available), then stable index.
+        def _rank(i: int) -> Tuple[int, float, int]:
+            same = 0 if (self.prefer_same_para and pid0 and self.items[i].para_id == pid0) else 1
+            sim = score_map.get(i, 0.0)
+            return (same, -sim, i)
+
+        ordered = sorted(idxs, key=_rank)
 
         for i in ordered:
             it = self.items[i]
             pid2 = it.para_id
+
             if allowed_para_ids is not None and pid2 not in allowed_para_ids:
                 continue
+
+            # If we're moving to another paragraph, require similarity threshold when available.
+            if pid0 and pid2 != pid0 and score_map:
+                if score_map.get(i, 0.0) < cross_para_min_sim:
+                    continue
+
             txt2 = self._para_text.get(pid2, "")
             snapped2 = _best_substring_snap(quote, txt2)
             if snapped2:
                 return (pid2, snapped2)
 
         return None
+
 
     def repair_verdict_anchors(
         self,
@@ -336,6 +431,12 @@ class SemanticMemory:
         """
         Returns (new_verdict, repaired_count).
         Works with frozen dataclass anchors by rebuilding the anchors list.
+
+        Rules:
+        - If quote is already a strict verbatim substring of the raw paragraph text, keep it.
+        - If quote is "close" under normalization, attempt snap-to-verbatim and replace quote with verbatim slice.
+        - If quote is not verbatim and not close, still attempt snap-to-verbatim.
+        - allowed_para_ids is a hard constraint: do not move to disallowed paras.
         """
         anchors = getattr(verdict, "anchors", None) or []
         if not anchors:
@@ -355,33 +456,49 @@ class SemanticMemory:
             pid_s = str(pid).strip()
             q_s = str(q)
 
-            # already verbatim? (strict or normalized)
-            txt = self._para_text.get(pid_s, "")
-            if q_s in txt:
-                new_anchors.append(a)
-                continue
-            if _norm(q_s) and _norm(q_s) in _norm(txt):
+            # Hard gate: if allowed_para_ids is specified and the given pid isn't allowed, we cannot repair it.
+            # (We keep as-is; validator can reject later.)
+            if allowed_para_ids is not None and pid_s and pid_s not in allowed_para_ids:
                 new_anchors.append(a)
                 continue
 
+            txt = self._para_text.get(pid_s, "")
+
+            # 1) Strict verbatim: keep
+            if q_s and txt and (q_s in txt):
+                new_anchors.append(a)
+                continue
+
+            # 2) If it's close under normalization, we MUST snap to verbatim (do not accept model text).
+            close_norm = bool(_norm(q_s)) and bool(_norm(txt)) and (_norm(q_s) in _norm(txt))
+
+            # 3) Attempt snap-to-verbatim (same para first; then semantic candidates if needed)
             got = self.snap_anchor(
                 para_id=pid_s,
                 quote=q_s,
                 allowed_para_ids=allowed_para_ids,
             )
+
             if not got:
+                # If it was "close" but we couldn't snap, keep as-is (validator will likely reject).
+                # If it wasn't close, same outcome.
                 new_anchors.append(a)
                 continue
 
             pid2, q2 = got
 
+            # Only count as repair if we actually changed the quote or para_id OR it was a close_norm case.
+            changed = (pid2 != pid_s) or (q2 != q_s) or close_norm
+
             if isinstance(a, dict):
                 new_anchors.append(_anchor_set_dict(a, pid2, q2))
-                repaired += 1
+                if changed:
+                    repaired += 1
             else:
                 try:
                     new_anchors.append(dc_replace(a, para_id=pid2, quote=q2))
-                    repaired += 1
+                    if changed:
+                        repaired += 1
                 except Exception:
                     new_anchors.append(a)
 
