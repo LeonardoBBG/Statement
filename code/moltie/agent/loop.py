@@ -83,6 +83,7 @@ def enforce_matched_x(verdict: "Verdict", atom_id: str, allowed_x: list[str]) ->
 
     Rules:
     - matched_X must be subset of allowed_x
+    - NEVER output more than 3 matched_X items (prompt contract)
     - if anchors are empty => relevant must be False and matched_X must be []
     - if relevant=True and we have >=1 anchors, but matched_X doesn't include atom_id
       (often due to model outputting junk IDs), we REPAIR matched_X to [atom_id]
@@ -113,8 +114,11 @@ def enforce_matched_x(verdict: "Verdict", atom_id: str, allowed_x: list[str]) ->
     if not relevant2:
         mx2 = []
 
-    return replace(verdict, matched_X=mx2, relevant=relevant2)
+    # Prompt contract: never more than 3 matched_X items.
+    if len(mx2) > 3:
+        mx2 = mx2[:3]
 
+    return replace(verdict, matched_X=mx2, relevant=relevant2)
 
 def _filter_front_matter(paras, min_keep=4, debug=False, head_limit=40):
     if not paras:
@@ -571,6 +575,7 @@ def run_harvest_then_reason_on_one_doc(
         )
 
     return LoopResult(verdict=verdict2, negative_exit=None, iters=1, trace=trace)
+
 def run_agent_on_one_doc(
     doc_id: str,
     paras: List[Dict[str, str]],
@@ -593,7 +598,6 @@ def run_agent_on_one_doc(
     # -----------------------------
     # SEMANTIC MEMORY (snap-to-verbatim)
     # -----------------------------
-    # NOTE: requires `from .semantic_memory import SemanticMemory` at module scope.
     sem = SemanticMemory()
     sem.build(paras)
 
@@ -605,7 +609,6 @@ def run_agent_on_one_doc(
 
     # Track visited windows precisely (start,end)
     visited_windows: Set[Tuple[int, int]] = set()
-    # keep visited_starts as a coarse back-compat signal (optional)
     visited_starts: Set[int] = set()
 
     print(f"[moltie.loop] start doc_id={doc_id!r} atom_id={atom.atom_id!r} n_paras={len(paras)}")
@@ -636,6 +639,39 @@ def run_agent_on_one_doc(
     anchors_required = int(getattr(run_cfg, "anchors_required", 1))
 
     k_chunks_per_doc = int(getattr(run_cfg, "k_chunks_per_doc", 12))
+
+    # -----------------------------
+    # helper: per-iter temperature schedule
+    # -----------------------------
+    def _iter_temperature(i: int) -> float:
+        # Default: keep llm_cfg.temperature (no override)
+        if not bool(getattr(run_cfg, "iter_temp_enabled", False)):
+            return float(getattr(llm_cfg, "temperature", 0.0))
+
+        t0 = float(getattr(run_cfg, "iter_temp_start", 0.0))
+        t1 = float(getattr(run_cfg, "iter_temp_end", 0.0))
+        cap = float(getattr(run_cfg, "iter_temp_cap", 0.8))
+        curve = str(getattr(run_cfg, "iter_temp_curve", "linear")).strip().lower() or "linear"
+        kexp = float(getattr(run_cfg, "iter_temp_exp_k", 2.0))
+
+        if max_iters <= 1:
+            t = t1
+        else:
+            x = (i - 1) / float(max_iters - 1)  # 0..1
+            if curve == "exp":
+                # smooth easing toward end: x' = 1 - (1-x)^k
+                x2 = 1.0 - ((1.0 - x) ** max(0.1, kexp))
+                t = t0 + (t1 - t0) * x2
+            else:
+                # linear
+                t = t0 + (t1 - t0) * x
+
+        # clamp to sane range
+        if t < 0.0:
+            t = 0.0
+        if cap > 0.0 and t > cap:
+            t = cap
+        return t
 
     for i in range(1, max_iters + 1):
         rr = retrieve_windowed_evidence(
@@ -670,7 +706,13 @@ def run_agent_on_one_doc(
         if atom.atom_id not in prompt:
             print(f"[moltie.loop] iter={i} WARN atom_id not found in prompt prompt_hash={_h(prompt)}")
 
-        verdict = verify_with_ollama(prompt, llm_cfg)
+        # -----------------------------
+        # NEW: per-iteration cfg (temp schedule)
+        # -----------------------------
+        temp_i = _iter_temperature(i)
+        llm_cfg_i = replace(llm_cfg, temperature=temp_i)
+
+        verdict = verify_with_ollama(prompt, llm_cfg_i)
         verdict = enforce_matched_x(verdict, atom_id=atom.atom_id, allowed_x=getattr(atom, "x_tests", []) or [])
 
         if not getattr(verdict, "atom_id", "").strip():
@@ -696,6 +738,7 @@ def run_agent_on_one_doc(
                     "matched_X": list(getattr(verdict, "matched_X", None) or []),
                     "evidence_to_x": _evidence_to_x_from_verdict(doc_id, verdict),
                     "semantic_repaired_anchors": repaired_n,
+                    "llm_temperature": temp_i,
                 }
             )
             print(f"[moltie.loop] INVALID_ANCHORS iter={i} repaired={repaired_n} bad={bad[:3]} -> continuing")
@@ -715,6 +758,7 @@ def run_agent_on_one_doc(
                 "matched_X": list(getattr(verdict, "matched_X", None) or []),
                 "evidence_to_x": evidence_to_x_step,
                 "semantic_repaired_anchors": repaired_n,
+                "llm_temperature": temp_i,
             }
         )
 
@@ -722,7 +766,7 @@ def run_agent_on_one_doc(
         print(
             f"[moltie.loop] iter={i} rel={getattr(verdict,'relevant',None)} "
             f"score={getattr(verdict,'precedent_score',None)} conf={getattr(verdict,'confidence',None)} "
-            f"anchors={len(getattr(verdict,'anchors',[]) or [])} quality={q}"
+            f"anchors={len(getattr(verdict,'anchors',[]) or [])} quality={q} temp={temp_i}"
         )
 
         if best is None or q >= (best_quality + eps_improve):
@@ -785,11 +829,6 @@ def run_agent_on_one_doc(
                 f"best_quality={best_quality} best_score={best_score} visited_windows={len(visited_windows)}"
             )
 
-            print(
-                f"[moltie.loop] EXIT plateau iter={i} plateau={plateau} "
-                f"best_quality={best_quality} best_score={best_score} visited_windows={len(visited_windows)}"
-            )
-
             # -------------------------------------------------
             # GOLD-ADJACENT SIGNAL (strictly advisory layer)
             # -------------------------------------------------
@@ -799,10 +838,10 @@ def run_agent_on_one_doc(
             if best is not None:
                 ps = _nn_int(getattr(best, "precedent_score", 0))
                 conf = _nn_int(getattr(best, "confidence", 0))
-                anchors_len = len(getattr(best, "anchors", []) or [])
+                anchors_len_best = len(getattr(best, "anchors", []) or [])
                 rel = bool(getattr(best, "relevant", False))
 
-                if (not rel) and ps >= 75 and conf >= 80 and anchors_len >= 2:
+                if (not rel) and ps >= 75 and conf >= 80 and anchors_len_best >= 2:
                     gold_adjacent = True
                     gold_reason = "strong_doctrinal_signal_without_atom_alignment"
 
@@ -849,10 +888,10 @@ def run_agent_on_one_doc(
     if best is not None:
         ps = _nn_int(getattr(best, "precedent_score", 0))
         conf = _nn_int(getattr(best, "confidence", 0))
-        anchors_len = len(getattr(best, "anchors", []) or [])
+        anchors_len_best = len(getattr(best, "anchors", []) or [])
         rel = bool(getattr(best, "relevant", False))
 
-        if (not rel) and ps >= 75 and conf >= 80 and anchors_len >= 2:
+        if (not rel) and ps >= 75 and conf >= 80 and anchors_len_best >= 2:
             gold_adjacent = True
             gold_reason = "strong_doctrinal_signal_without_atom_alignment"
 

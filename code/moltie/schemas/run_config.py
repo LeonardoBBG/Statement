@@ -48,6 +48,17 @@ class RunConfig:
 
     memory_max_items: int = 30
 
+    # -------------------------------
+    # NEW: per-iteration temperature
+    # -------------------------------
+    # If enabled, loop.py will override llm_cfg.temperature per-iteration.
+    iter_temp_enabled: bool = False
+    iter_temp_start: float = 0.0     # temp at iter=1
+    iter_temp_end: float = 0.0       # temp at iter=max_iters
+    iter_temp_curve: str = "linear"  # "linear" | "exp"
+    iter_temp_exp_k: float = 2.0     # curve shaping for exp
+    iter_temp_cap: float = 0.8       # safety cap
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
@@ -89,4 +100,12 @@ class RunConfig:
             harvest_min_conf=int(d.get("harvest_min_conf", 70)),
             harvest_min_anchors=int(d.get("harvest_min_anchors", 1)),
             memory_max_items=int(d.get("memory_max_items", 30)),
+
+            # per-iter temperature (safe defaults)
+            iter_temp_enabled=bool(d.get("iter_temp_enabled", False)),
+            iter_temp_start=float(d.get("iter_temp_start", 0.0)),
+            iter_temp_end=float(d.get("iter_temp_end", 0.0)),
+            iter_temp_curve=str(d.get("iter_temp_curve", "linear")).strip().lower() or "linear",
+            iter_temp_exp_k=float(d.get("iter_temp_exp_k", 2.0)),
+            iter_temp_cap=float(d.get("iter_temp_cap", 0.8)),
         )
