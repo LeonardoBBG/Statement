@@ -335,6 +335,8 @@ def _ollama_generate(prompt: str, cfg: LLMClientConfig, force_json: bool = True)
         "options": {
             "temperature": cfg.temperature,
             "num_predict": cfg.num_predict,
+            # ✅ Safety: ensure we are not inheriting stop sequences from elsewhere
+            "stop": [],
         },
     }
     if force_json:
@@ -343,6 +345,9 @@ def _ollama_generate(prompt: str, cfg: LLMClientConfig, force_json: bool = True)
     r = requests.post(cfg.ollama_url, json=payload, timeout=cfg.timeout_s)
     r.raise_for_status()
     data = r.json()
+
+    # Note: Ollama typically returns keys like response/done_reason.
+    # We keep output behavior identical: return the response string.
     return (data.get("response") or "").strip()
 
 
@@ -448,23 +453,19 @@ def _coerce_missing_ids(obj: Dict[str, Any], base_prompt: str) -> Dict[str, Any]
 
     return obj
 
-def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
+def _sanitize_verdict_object(
+    obj: Dict[str, Any],
+    *,
+    allowed_mx: Optional[set] = None,
+) -> Dict[str, Any]:
     """
-    Defensive normalizer for Verdict JSON objects before validation.
+    Normalizes a raw Verdict dict into a validator-friendly Verdict dict.
 
-    Goals:
-    - Drop unknown root keys (so we can sanitize before enforcing allowed keys).
-    - Ensure ALL required keys exist (fill defaults).
-    - Coerce types (ints, bools, lists, strings).
-    - Normalize enums (use_mode, outcomes, winners).
-    - Accept common model variants:
-        * anchors items may use "text" instead of "quote"
-        * winners may be "employer"/"employee" -> respondent/claimant
-    - Ensure anchors are well-formed dicts with required fields (para_id, quote, why_it_matters).
-    - Enforce low-signal rule: no anchors => relevant=false and cap score.
+    Hard alignment with VerdictValidator rules:
+    - If relevant=false => anchors=[], use_mode in {contrast, verify}, precedent_score<=40
+    - If relevant=true  => anchors non-empty, precedent_score>0
     """
 
-    # ========= contract keys (root) =========
     _ALLOWED_KEYS = {
         "atom_id",
         "doc_id",
@@ -483,13 +484,13 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
         "retrieval_method",
     }
 
-    # Drop illegal/unknown root keys (e.g., "precedent_type", "why_it_matters", etc.)
+    # Drop illegal root keys
     if isinstance(obj, dict):
         obj = {k: v for k, v in obj.items() if k in _ALLOWED_KEYS}
     else:
         obj = {}
 
-    # Ensure required keys exist (defaults)
+    # Defaults (must satisfy "allowed keys only" but validator does NOT require all keys)
     defaults: Dict[str, Any] = {
         "atom_id": "",
         "doc_id": "",
@@ -498,110 +499,96 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
         "precedent_score": 0,
         "confidence": 0,
         "anchors": [],
-        "use_mode": "contrast",
+        "use_mode": "contrast",            # validator allows contrast/verify when irrelevant
         "proposition_winner": "unclear",
         "appeal_outcome": "unknown",
         "successful_party": "unclear",
         "distinguishers": [],
-        "note": "No relevant information found.",
+        "note": "",
         "retrieval_score": None,
         "retrieval_method": None,
     }
     for k, v in defaults.items():
         obj.setdefault(k, v)
 
-    # ---------- helpers ----------
     def _as_str(x: Any) -> str:
         return str(x) if x is not None else ""
 
     def _clean_str(x: Any) -> str:
         return _as_str(x).strip()
 
-    def _clamp_int(x: Any, lo: int = 0, hi: int = 100, default: int = 0) -> int:
-        try:
-            v = int(x)
-        except Exception:
-            return default
-        if v < lo:
-            return lo
-        if v > hi:
-            return hi
-        return v
-
-    def _as_bool(x: Any) -> bool:
+    def _to_bool_local(x: Any) -> bool:
+        # mirror your _to_bool behavior (string "false" must be False)
         if isinstance(x, bool):
             return x
         if isinstance(x, (int, float)):
             return bool(x)
         if isinstance(x, str):
-            s = x.strip().lower()
-            if s in {"true", "t", "yes", "y", "1"}:
-                return True
-            if s in {"false", "f", "no", "n", "0", ""}:
-                return False
+            return x.strip().lower() in ("true", "1", "yes")
         return False
+
+    def _clamp_int(x: Any, lo: int = 0, hi: int = 100, default: int = 0) -> int:
+        try:
+            v = int(x)
+        except Exception:
+            return default
+        return max(lo, min(hi, v))
 
     def _map_party(x: Any) -> str:
         s = _clean_str(x).lower()
-        # common synonyms
         if s in {"claimant", "employee", "appellant", "worker"}:
             return "claimant"
-        if s in {"respondent", "employer", "company"}:
+        if s in {"respondent", "employer", "company", "defendant"}:
             return "respondent"
         if s == "mixed":
             return "mixed"
         return "unclear"
 
-    # ---------- core fields ----------
+    # --- core primitives ---
     obj["atom_id"] = _clean_str(obj.get("atom_id"))
     obj["doc_id"] = _clean_str(obj.get("doc_id"))
+    obj["relevant"] = _to_bool_local(obj.get("relevant"))
+    obj["precedent_score"] = _clamp_int(obj.get("precedent_score", 0))
+    obj["confidence"] = _clamp_int(obj.get("confidence", 0))
 
-    obj["relevant"] = _as_bool(obj.get("relevant", False))
-
-    obj["precedent_score"] = _clamp_int(obj.get("precedent_score", 0), 0, 100, 0)
-    obj["confidence"] = _clamp_int(obj.get("confidence", 0), 0, 100, 0)
-
-    # matched_X: list[str] but ONLY X1..X5
+    # matched_X: list[str], and must start with "X" (validator rule)
     mx = obj.get("matched_X", [])
     if not isinstance(mx, list):
         mx = []
 
-    allowed_mx = {"X1", "X2", "X3", "X4", "X5"}
-    mx2: List[str] = []
+    mx_out: List[str] = []
     for x in mx:
         s = _clean_str(x).upper()
-        if s in allowed_mx:
-            mx2.append(s)
+        if not s:
+            continue
+        if not s.startswith("X"):
+            continue
+        if allowed_mx is not None:
+            if s in allowed_mx:
+                mx_out.append(s)
+        else:
+            mx_out.append(s)
 
-    # de-dup preserve order
+    # de-dup, cap at 3 (your client rules)
     seen = set()
-    mx3: List[str] = []
-    for s in mx2:
+    mx_final: List[str] = []
+    for s in mx_out:
         if s not in seen:
             seen.add(s)
-            mx3.append(s)
+            mx_final.append(s)
+    obj["matched_X"] = mx_final[:3]
 
-    obj["matched_X"] = mx3
-
-    # distinguishers: list[str]
+    # distinguishers: list[str] non-blank
     dist = obj.get("distinguishers", [])
     if not isinstance(dist, list):
         dist = []
-    dist2: List[str] = []
-    for x in dist:
-        s = _clean_str(x)
-        if s:
-            dist2.append(s)
-    obj["distinguishers"] = dist2
+    obj["distinguishers"] = [str(d).strip() for d in dist if str(d).strip()]
 
-    # note: keep non-empty
-    note = _clean_str(obj.get("note", ""))
-    obj["note"] = note if note else "No relevant information found."
+    # note: must be str if present
+    note = obj.get("note", "")
+    obj["note"] = str(note) if note is not None else ""
 
     # retrieval fields
-    rm = obj.get("retrieval_method", None)
-    obj["retrieval_method"] = None if rm is None else (_clean_str(rm) or None)
-
     rs = obj.get("retrieval_score", None)
     if rs is None:
         obj["retrieval_score"] = None
@@ -611,7 +598,27 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:
             obj["retrieval_score"] = None
 
-    # ---------- anchors ----------
+    rm = obj.get("retrieval_method", None)
+    if rm is None:
+        obj["retrieval_method"] = None
+    else:
+        obj["retrieval_method"] = _clean_str(rm) or None
+
+    # enums
+    obj["proposition_winner"] = _map_party(obj.get("proposition_winner", "unclear"))
+    obj["successful_party"] = _map_party(obj.get("successful_party", "unclear"))
+
+    ao = _clean_str(obj.get("appeal_outcome", "unknown")).lower()
+    if ao not in {"allowed", "dismissed", "remitted", "mixed", "unknown"}:
+        ao = "unknown"
+    obj["appeal_outcome"] = ao
+
+    um = _clean_str(obj.get("use_mode", "contrast")).lower()
+    if um not in {"support", "contrast", "verify", "harmful"}:
+        um = "contrast"
+    obj["use_mode"] = um
+
+    # anchors: must be list[dict] with required keys
     anchors = obj.get("anchors", [])
     if not isinstance(anchors, list):
         anchors = []
@@ -622,68 +629,50 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
             continue
 
         pid = _clean_str(a.get("para_id"))
+        q = a.get("quote", None)
+        if q is None:
+            # accept alias if model emits it
+            q = a.get("text", None)
+        quote = _clean_str(q)
+        why = _clean_str(a.get("why_it_matters"))
 
-        # Accept either "quote" or "text" (model often emits "text")
-        q_raw = a.get("quote", None)
-        if q_raw is None:
-            q_raw = a.get("text", None)
-        quote = _as_str(q_raw).strip()
-
-        why = _clean_str(a.get("why_it_matters")) or "Relevant passage."
-
-        if not pid or not quote:
-            continue
-
-        anchors_out.append({"para_id": pid, "quote": quote, "why_it_matters": why})
+        # Keep only anchor-shaped dicts; let validator do min-length checks
+        if pid and quote and why:
+            anchors_out.append({"para_id": pid, "quote": quote, "why_it_matters": why})
 
     obj["anchors"] = anchors_out
 
-    # ---------- enum normalization ----------
-    # ---------- enum normalization ----------
-    rel = bool(obj.get("relevant", False))
+    # ==========================
+    # HARD CROSS-FIELD GUARDS
+    # ==========================
 
-    um = _clean_str(obj.get("use_mode", "")).lower()
-    if um not in {"support", "contrast", "harmful"}:
-        um = "support" if rel else "contrast"
-    if not rel:
-        um = "contrast"
-    obj["use_mode"] = um
+    rel = bool(obj["relevant"])
+    has_anchors = len(obj["anchors"]) > 0
+    ps = int(obj.get("precedent_score", 0) or 0)
 
-    obj["proposition_winner"] = _map_party(obj.get("proposition_winner", ""))
-    obj["successful_party"] = _map_party(obj.get("successful_party", ""))
-
-    ao = _clean_str(obj.get("appeal_outcome", "")).lower()
-    if ao not in {"allowed", "dismissed", "remitted", "mixed", "unknown"}:
-        ao = "unknown"
-    obj["appeal_outcome"] = ao
-
-    # ---------- low-signal rule ----------
-    if len(obj["anchors"]) == 0:
-        obj["relevant"] = False
-        obj["use_mode"] = "contrast"
-        obj["precedent_score"] = min(obj["precedent_score"], 40)
-
-    if not obj["relevant"]:
-        obj["precedent_score"] = min(obj["precedent_score"], 40)
-
-    # ✅ FINAL CONSISTENCY GUARD
-    # If relevant=True, "contrast" makes no sense for your semantics.
-    if obj["relevant"] and obj["use_mode"] == "contrast":
-        obj["use_mode"] = "support"
+    if rel:
+        # Relevant verdict must have anchors and ps>0 (validator hard rule)
+        if (not has_anchors) or ps <= 0:
+            obj["relevant"] = False
+            obj["anchors"] = []
+            obj["precedent_score"] = min(max(ps, 0), 40)
+            # irrelevant can be contrast or verify; default to contrast
+            if obj.get("use_mode") not in ("contrast", "verify"):
+                obj["use_mode"] = "contrast"
+        else:
+            # If relevant, "verify" is semantically weird; normalize to support
+            if obj.get("use_mode") in ("contrast", "verify"):
+                obj["use_mode"] = "support"
+    else:
+        # Irrelevant verdict must have no anchors, low score, and contrast/verify
+        obj["anchors"] = []
+        obj["precedent_score"] = min(int(obj.get("precedent_score", 0) or 0), 40)
+        if obj.get("use_mode") not in ("contrast", "verify"):
+            obj["use_mode"] = "contrast"
 
     return obj
 
-
 def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
-    """
-    Calls Ollama and returns a validated Verdict.
-
-    ADD-ONLY DEBUG VERSION:
-    - Prints prompt hash/head
-    - Prints raw model output head/tail
-    - Prints extracted keys + atom_id/doc_id before/after coercion
-    - Prints exception causes for Attempt A and Attempt B
-    """
     base_prompt = prompt
     last_err: Optional[Exception] = None
     last_txt: str = ""
@@ -717,7 +706,6 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
         "matched_paras",
     }
 
-    # --- ADDED: local hash helper (client.py may not have loop._h) ---
     def _h(s: str) -> str:
         import hashlib
         return hashlib.sha1((s or "").encode("utf-8", errors="ignore")).hexdigest()[:10]
@@ -734,158 +722,124 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
     def _enforce_allowed_keys(obj: Dict[str, Any]) -> None:
         keys = set(obj.keys())
         extra = keys - _ALLOWED_KEYS
-        missing = _ALLOWED_KEYS - keys
         if extra:
             raise ValueError(f"Verdict JSON included illegal keys: {sorted(list(extra))[:12]}")
-        if missing:
-            raise ValueError(f"Verdict JSON missing required keys: {sorted(list(missing))[:12]}")
 
     def _prepend_correction(p: str, why: str) -> str:
         return (
             "IMPORTANT (NON-NEGOTIABLE OUTPUT CONTRACT):\n"
             "- Output ONE JSON object ONLY that matches the Verdict schema.\n"
             "- Use ONLY allowed keys; no extras.\n"
-            "- precedent_score and confidence must be integers 0..100 (never -1).\n"
-            "- anchors MUST be a list of objects, never strings. If you cannot provide para_id, output anchors=[].\n"
-            "- Do NOT output retrieval reports or paragraph dumps.\n"
-            "- Do NOT output an 'answer' field or any wrapper object. Output the Verdict object ONLY.\n"
-            "- NEVER output a JSON object with a single key like {'answer': ...}. That is invalid.\n"
-            "- You must output ALL required keys, including anchors/use_mode/etc.\n"
+            "- If relevant=true then anchors MUST be non-empty and precedent_score MUST be > 0.\n"
+            "- If you cannot provide >=1 anchors, set relevant=false and anchors=[].\n"
+            "- anchors MUST be a list of objects with para_id, quote, why_it_matters.\n"
+            "- Do NOT output paragraph dumps.\n"
             f"- Fix required because: {why}\n\n"
             + p
         )
 
+    def _extract_allowed_mx_from_prompt(bp: str) -> Optional[set]:
+        try:
+            marker = "Input JSON"
+            i = bp.rfind(marker)
+            if i == -1:
+                return None
+            tail = bp[i:]
+            payload = _extract_json_object(tail)
+            atom = payload.get("atom") if isinstance(payload, dict) else None
+            xt = atom.get("x_tests") if isinstance(atom, dict) else None
+            if not isinstance(xt, list):
+                return None
+            out = set()
+            for x in xt:
+                s = str(x).strip().upper()
+                if s.startswith("X"):
+                    out.add(s)
+            return out or None
+        except Exception:
+            return None
+
+    allowed_mx = _extract_allowed_mx_from_prompt(base_prompt)
+
     prompt_to_send = base_prompt
 
     for attempt in range(cfg.max_retries + 1):
-        # ---- Attempt A ----
+        # ============ Attempt A ============
         try:
             txt = _ollama_generate(prompt_to_send, cfg, force_json=True)
             last_txt = txt
 
-            # --- ADDED DEBUG (Attempt A) ---
-            try:
-                print("\n[moltie.client] ===== Attempt A =====")
-                print("[moltie.client] attempt:", attempt)
-                print("[moltie.client] prompt_hash:", _h(prompt_to_send))
-                print("[moltie.client] prompt_head:\n", (prompt_to_send or "")[:600])
-                print("[moltie.client] raw_len:", len(txt or ""))
-                print("[moltie.client] raw_head:\n", (txt or "")[:800])
-                print("[moltie.client] raw_tail:\n", (txt or "")[-400:])
-            except Exception as _dbg_e:
-                print("[moltie.client] debug_print_failed:", repr(_dbg_e))
+            print("\n[moltie.client] ===== Attempt A =====")
+            print("[moltie.client] attempt:", attempt)
+            print("[moltie.client] prompt_hash:", _h(prompt_to_send))
+            print("[moltie.client] raw_len:", len(txt or ""))
+            print("[moltie.client] raw_head:\n", (txt or "")[:800])
+            print("[moltie.client] raw_tail:\n", (txt or "")[-400:])
 
             if len(txt) > _MAX_RAW_OUTPUT_CHARS:
                 raise ValueError("Model output too long (likely paragraph dump).")
 
-            # NOTE: do NOT substring-scan for illegal keys here; it can false-trigger inside quotes.
             obj = _extract_json_object(txt)
-
-            # --- ADDED DEBUG: extracted obj keys (Attempt A) ---
-            try:
-                print("[moltie.client] extracted_keys:", sorted(list((obj or {}).keys()))[:40])
-                print("[moltie.client] extracted_atom_id:", (obj or {}).get("atom_id"))
-                print("[moltie.client] extracted_doc_id:", (obj or {}).get("doc_id"))
-            except Exception as _dbg_e:
-                print("[moltie.client] debug_obj_failed:", repr(_dbg_e))
-
             obj = _coerce_missing_ids(obj, base_prompt)
 
-            # --- ADDED DEBUG: post-coerce ids (Attempt A) ---
-            try:
-                print("[moltie.client] post_coerce_atom_id:", (obj or {}).get("atom_id"))
-                print("[moltie.client] post_coerce_doc_id:", (obj or {}).get("doc_id"))
-            except Exception as _dbg_e:
-                print("[moltie.client] debug_post_coerce_failed:", repr(_dbg_e))
-
             if _is_wrong_object(obj):
-                raise ValueError(f"Wrong JSON object returned (not a Verdict). Keys={sorted(list(obj.keys()))[:12]}")
+                raise ValueError(f"Wrong JSON object returned. Keys={sorted(list(obj.keys()))[:12]}")
 
             _enforce_allowed_keys(obj)
 
-            obj = _sanitize_verdict_object(obj)
+            # ✅ sanitize BEFORE validate (this prevents your crash)
+            obj = _sanitize_verdict_object(obj, allowed_mx=allowed_mx)
 
             VerdictValidator.validate(obj)
             return Verdict.from_dict(obj)
 
         except Exception as e:
-            # --- ADDED DEBUG: why Attempt A failed ---
-            try:
-                print("[moltie.client] Attempt A exception:", repr(e))
-            except Exception:
-                pass
-
+            print("[moltie.client] Attempt A exception:", repr(e))
             last_err = e
             prompt_to_send = _prepend_correction(base_prompt, why=str(e))
 
-        # ---- Attempt B: repair ----
+        # ============ Attempt B (REPAIR) ============
         try:
             repair_prompt = (
                 "REPAIR TASK:\n"
                 "Return ONE Verdict JSON object ONLY with EXACT allowed keys.\n"
-                "precedent_score and confidence MUST be integers 0..100 (never -1). If unknown, use 0.\n"
-                "anchors MUST be a list of objects, never strings. If you cannot provide para_id, set anchors=[].\n"
-                "Do NOT output retrieval reports or paragraph dumps.\n\n"
-                "If anchors is empty, set relevant=false and use_mode='contrast' and precedent_score<=40.\n"
-                + "You MUST use the following Input JSON evidence. Copy quotes EXACTLY as substrings.\n\n"
+                "If relevant=true then anchors MUST be non-empty and precedent_score MUST be > 0.\n"
+                "If you cannot provide >=1 anchors, set relevant=false and anchors=[].\n"
+                "anchors MUST be objects with para_id, quote, why_it_matters.\n"
+                "Copy quotes EXACTLY as substrings from the evidence.\n\n"
                 + base_prompt
-                + "\n\nMODEL LAST OUTPUT (for reference only; do not copy text unless it appears verbatim in evidence):\n"
-                + _make_repair_prompt(last_txt)
+                + "\n\nMODEL LAST OUTPUT (reference only; do not reuse unless verbatim in evidence):\n"
+                + (last_txt or "EMPTY_OUTPUT")
             )
 
             txt2 = _ollama_generate(repair_prompt, cfg, force_json=True)
+            last_txt = txt2
 
-            # --- ADDED DEBUG (Attempt B) ---
-            try:
-                print("\n[moltie.client] ===== Attempt B (REPAIR) =====")
-                print("[moltie.client] attempt:", attempt)
-                print("[moltie.client] repair_prompt_hash:", _h(repair_prompt))
-                print("[moltie.client] repair_prompt_head:\n", (repair_prompt or "")[:600])
-                print("[moltie.client] raw2_len:", len(txt2 or ""))
-                print("[moltie.client] raw2_head:\n", (txt2 or "")[:800])
-                print("[moltie.client] raw2_tail:\n", (txt2 or "")[-400:])
-            except Exception as _dbg_e:
-                print("[moltie.client] debug_print_failed:", repr(_dbg_e))
+            print("\n[moltie.client] ===== Attempt B (REPAIR) =====")
+            print("[moltie.client] attempt:", attempt)
+            print("[moltie.client] raw2_len:", len(txt2 or ""))
+            print("[moltie.client] raw2_head:\n", (txt2 or "")[:800])
+            print("[moltie.client] raw2_tail:\n", (txt2 or "")[-400:])
 
             if len(txt2) > _MAX_RAW_OUTPUT_CHARS:
                 raise ValueError("Repair output too long (likely paragraph dump).")
 
             obj2 = _extract_json_object(txt2)
-
-            # --- ADDED DEBUG: extracted obj2 keys (Attempt B) ---
-            try:
-                print("[moltie.client] extracted2_keys:", sorted(list((obj2 or {}).keys()))[:40])
-                print("[moltie.client] extracted2_atom_id:", (obj2 or {}).get("atom_id"))
-                print("[moltie.client] extracted2_doc_id:", (obj2 or {}).get("doc_id"))
-            except Exception as _dbg_e:
-                print("[moltie.client] debug_obj2_failed:", repr(_dbg_e))
-
             obj2 = _coerce_missing_ids(obj2, base_prompt)
-
-            # --- ADDED DEBUG: post-coerce ids (Attempt B) ---
-            try:
-                print("[moltie.client] post_coerce2_atom_id:", (obj2 or {}).get("atom_id"))
-                print("[moltie.client] post_coerce2_doc_id:", (obj2 or {}).get("doc_id"))
-            except Exception as _dbg_e:
-                print("[moltie.client] debug_post_coerce2_failed:", repr(_dbg_e))
 
             if _is_wrong_object(obj2):
                 raise ValueError(f"Repair returned wrong JSON object. Keys={sorted(list(obj2.keys()))[:12]}")
 
             _enforce_allowed_keys(obj2)
 
-            obj2 = _sanitize_verdict_object(obj2)
+            # ✅ sanitize BEFORE validate
+            obj2 = _sanitize_verdict_object(obj2, allowed_mx=allowed_mx)
 
             VerdictValidator.validate(obj2)
             return Verdict.from_dict(obj2)
 
         except Exception as e2:
-            # --- ADDED DEBUG: why Attempt B failed ---
-            try:
-                print("[moltie.client] Attempt B exception:", repr(e2))
-            except Exception:
-                pass
-
+            print("[moltie.client] Attempt B exception:", repr(e2))
             last_err = e2
             prompt_to_send = _prepend_correction(base_prompt, why=str(e2))
             continue
