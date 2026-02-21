@@ -678,11 +678,11 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
     """
     Calls Ollama and returns a validated Verdict.
 
-    ADD-ONLY DEBUG VERSION:
-    - Prints prompt hash/head
-    - Prints raw model output head/tail
-    - Prints extracted keys + atom_id/doc_id before/after coercion
-    - Prints exception causes for Attempt A and Attempt B
+    HARDENED DEBUG VERSION (drop-in):
+    - Keeps your debug prints
+    - Adds robust JSON extraction fallback when _extract_json_object can't find braces
+    - Detects degenerate outputs (base64-ish / endless token spam / no JSON) early
+    - Keeps Attempt A -> Attempt B repair behavior unchanged
     """
     base_prompt = prompt
     last_err: Optional[Exception] = None
@@ -717,7 +717,7 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
         "matched_paras",
     }
 
-    # --- ADDED: local hash helper (client.py may not have loop._h) ---
+    # --- local hash helper ---
     def _h(s: str) -> str:
         import hashlib
         return hashlib.sha1((s or "").encode("utf-8", errors="ignore")).hexdigest()[:10]
@@ -755,6 +755,62 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
             + p
         )
 
+    # --- NEW: degeneracy + robust extraction helpers ---
+    def _looks_degenerate(txt: str) -> bool:
+        """
+        Heuristic: catches the X5-style outputs where the model streams
+        long base64/underscore/token spam and never produces JSON braces.
+        """
+        if not txt:
+            return True
+
+        # If there are no braces at all, it's almost surely not a verdict.
+        if "{" not in txt or "}" not in txt:
+            # "base64-ish" / id spam: very long, few spaces, lots of underscores/digits/letters
+            t = txt.strip()
+            if len(t) >= 400:
+                spaces = t.count(" ")
+                if spaces <= 3:
+                    # ratio of "safe" token chars
+                    import string
+                    allowed = set(string.ascii_letters + string.digits + "_-=")
+                    ratio = sum(1 for c in t[:800] if c in allowed) / max(1, min(len(t), 800))
+                    if ratio > 0.90:
+                        return True
+            return True  # no braces => degenerate for our use case
+
+        # If braces exist but are extremely imbalanced, often a dump/stream failure
+        if txt.count("{") >= 1 and txt.count("}") == 0:
+            return True
+
+        # Extra guard: absurdly long single line tends to be a runaway token stream
+        lines = (txt or "").splitlines()
+        if lines and max(len(ln) for ln in lines) > 5000:
+            return True
+
+        return False
+
+    def _extract_json_object_robust(txt: str) -> Dict[str, Any]:
+        """
+        First try the repo extractor. If it fails, do a minimal brace-slice fallback:
+        take substring from first '{' to last '}' and attempt json.loads.
+        """
+        try:
+            return _extract_json_object(txt)
+        except Exception as e:
+            # fallback only if braces exist
+            if "{" in (txt or "") and "}" in (txt or ""):
+                a = txt.find("{")
+                b = txt.rfind("}")
+                if 0 <= a < b:
+                    chunk = txt[a : b + 1]
+                    try:
+                        import json
+                        return json.loads(chunk)
+                    except Exception:
+                        pass
+            raise e
+
     prompt_to_send = base_prompt
 
     for attempt in range(cfg.max_retries + 1):
@@ -763,7 +819,7 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
             txt = _ollama_generate(prompt_to_send, cfg, force_json=True)
             last_txt = txt
 
-            # --- ADDED DEBUG (Attempt A) ---
+            # --- DEBUG (Attempt A) ---
             try:
                 print("\n[moltie.client] ===== Attempt A =====")
                 print("[moltie.client] attempt:", attempt)
@@ -778,10 +834,13 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
             if len(txt) > _MAX_RAW_OUTPUT_CHARS:
                 raise ValueError("Model output too long (likely paragraph dump).")
 
-            # NOTE: do NOT substring-scan for illegal keys here; it can false-trigger inside quotes.
-            obj = _extract_json_object(txt)
+            # --- NEW: degeneracy detect BEFORE extraction (gives better error + repair trigger) ---
+            if _looks_degenerate(txt):
+                raise ValueError("Degenerate model output (no usable JSON braces / token spam).")
 
-            # --- ADDED DEBUG: extracted obj keys (Attempt A) ---
+            obj = _extract_json_object_robust(txt)
+
+            # --- DEBUG: extracted obj keys (Attempt A) ---
             try:
                 print("[moltie.client] extracted_keys:", sorted(list((obj or {}).keys()))[:40])
                 print("[moltie.client] extracted_atom_id:", (obj or {}).get("atom_id"))
@@ -791,7 +850,7 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
 
             obj = _coerce_missing_ids(obj, base_prompt)
 
-            # --- ADDED DEBUG: post-coerce ids (Attempt A) ---
+            # --- DEBUG: post-coerce ids (Attempt A) ---
             try:
                 print("[moltie.client] post_coerce_atom_id:", (obj or {}).get("atom_id"))
                 print("[moltie.client] post_coerce_doc_id:", (obj or {}).get("doc_id"))
@@ -809,7 +868,7 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
             return Verdict.from_dict(obj)
 
         except Exception as e:
-            # --- ADDED DEBUG: why Attempt A failed ---
+            # --- DEBUG: why Attempt A failed ---
             try:
                 print("[moltie.client] Attempt A exception:", repr(e))
             except Exception:
@@ -827,7 +886,7 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
                 "anchors MUST be a list of objects, never strings. If you cannot provide para_id, set anchors=[].\n"
                 "Do NOT output retrieval reports or paragraph dumps.\n\n"
                 "If anchors is empty, set relevant=false and use_mode='contrast' and precedent_score<=40.\n"
-                + "You MUST use the following Input JSON evidence. Copy quotes EXACTLY as substrings.\n\n"
+                "You MUST use the following Input JSON evidence. Copy quotes EXACTLY as substrings.\n\n"
                 + base_prompt
                 + "\n\nMODEL LAST OUTPUT (for reference only; do not copy text unless it appears verbatim in evidence):\n"
                 + _make_repair_prompt(last_txt)
@@ -835,7 +894,7 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
 
             txt2 = _ollama_generate(repair_prompt, cfg, force_json=True)
 
-            # --- ADDED DEBUG (Attempt B) ---
+            # --- DEBUG (Attempt B) ---
             try:
                 print("\n[moltie.client] ===== Attempt B (REPAIR) =====")
                 print("[moltie.client] attempt:", attempt)
@@ -850,9 +909,13 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
             if len(txt2) > _MAX_RAW_OUTPUT_CHARS:
                 raise ValueError("Repair output too long (likely paragraph dump).")
 
-            obj2 = _extract_json_object(txt2)
+            # --- NEW: degeneracy detect BEFORE extraction ---
+            if _looks_degenerate(txt2):
+                raise ValueError("Degenerate repair output (no usable JSON braces / token spam).")
 
-            # --- ADDED DEBUG: extracted obj2 keys (Attempt B) ---
+            obj2 = _extract_json_object_robust(txt2)
+
+            # --- DEBUG: extracted obj2 keys (Attempt B) ---
             try:
                 print("[moltie.client] extracted2_keys:", sorted(list((obj2 or {}).keys()))[:40])
                 print("[moltie.client] extracted2_atom_id:", (obj2 or {}).get("atom_id"))
@@ -862,7 +925,7 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
 
             obj2 = _coerce_missing_ids(obj2, base_prompt)
 
-            # --- ADDED DEBUG: post-coerce ids (Attempt B) ---
+            # --- DEBUG: post-coerce ids (Attempt B) ---
             try:
                 print("[moltie.client] post_coerce2_atom_id:", (obj2 or {}).get("atom_id"))
                 print("[moltie.client] post_coerce2_doc_id:", (obj2 or {}).get("doc_id"))
@@ -880,7 +943,7 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
             return Verdict.from_dict(obj2)
 
         except Exception as e2:
-            # --- ADDED DEBUG: why Attempt B failed ---
+            # --- DEBUG: why Attempt B failed ---
             try:
                 print("[moltie.client] Attempt B exception:", repr(e2))
             except Exception:
