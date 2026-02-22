@@ -90,10 +90,8 @@ _JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 _VERDICT_JSON_SCHEMA = {
     "type": "object",
     "properties": {
-        "atom_id": {"type": "string"},
-        "doc_id": {"type": "string"},
+        # NOTE: atom_id / doc_id / matched_X intentionally removed from model contract
         "relevant": {"type": "boolean"},
-        "matched_X": {"type": "array", "items": {"type": "string"}},
         "precedent_score": {"type": "integer", "minimum": 0, "maximum": 100},
         "confidence": {"type": "integer", "minimum": 0, "maximum": 100},
         "anchors": {
@@ -116,13 +114,10 @@ _VERDICT_JSON_SCHEMA = {
         "distinguishers": {"type": "array", "items": {"type": "string"}},
         "note": {"type": "string"},
         "retrieval_score": {"type": ["number", "null"]},
-        "retrieval_method": {"type": "string"},
+        "retrieval_method": {"type": ["string", "null"]},
     },
     "required": [
-        "atom_id",
-        "doc_id",
         "relevant",
-        "matched_X",
         "precedent_score",
         "confidence",
         "anchors",
@@ -137,20 +132,6 @@ _VERDICT_JSON_SCHEMA = {
     ],
     "additionalProperties": False,
 }
-
-# If the model starts dumping paragraphs or adding illegal keys, we hard-fail to trigger repair.
-# NOTE: keep these specific to illegal TOP-LEVEL keys, not generic substrings.
-_ILLEGAL_KEY_SNIPS = (
-    '"matched_paras"',
-    '"relevant_paras"',
-    '"supporting_paragraphs"',
-    '"retrieval_explanation"',
-    '"retrieval_k"',
-    '"retrieval_min_hits"',
-    '"retrieval_matched_paras"',
-    '"title"',
-    '"paras"',  # top-level paras dump indicator
-)
 
 _MAX_RAW_OUTPUT_CHARS = 40_000
 
@@ -351,117 +332,45 @@ def _make_repair_prompt(bad_output: str) -> str:
         "You MUST output ONE SINGLE VALID JSON object.\n"
         "NO prose. NO markdown. NO extra keys.\n"
         "Do not include any paragraph dumps.\n"
-        "IMPORTANT: anchors MUST be a list of objects (not strings). If you cannot provide para_id, set anchors=[].\n"
+        "IMPORTANT: anchors MUST be a list of objects (not strings).\n"
         "If you cannot find verbatim anchors in the provided evidence, set relevant=false and anchors=[].\n"
-        "precedent_score and confidence MUST be integers 0..100 (never -1). If unknown, use 0.\n\n"
+        "precedent_score and confidence MUST be integers 0..100.\n\n"
         "REQUIRED VERDICT SCHEMA (keys must match exactly):\n"
         "{"
-        '"atom_id":"string","doc_id":"string","relevant":true|false,"matched_X":["X1","X2","X3","X4","X5"],'
+        '"relevant":true|false,'
         '"precedent_score":0-100,"confidence":0-100,'
         '"anchors":[{"para_id":"p00001","quote":"verbatim substring","why_it_matters":"short"}],'
-        '"use_mode":"support|contrast|harmful","proposition_winner":"claimant|respondent|mixed|unclear",'
-        '"appeal_outcome":"allowed|dismissed|remitted|mixed|unknown","successful_party":"claimant|respondent|mixed|unclear",'
-        '"distinguishers":["..."],"note":"ONE sentence","retrieval_score":null,"retrieval_method":"string|null"'
+        '"use_mode":"support|contrast|harmful",'
+        '"proposition_winner":"claimant|respondent|mixed|unclear",'
+        '"appeal_outcome":"allowed|dismissed|remitted|mixed|unknown",'
+        '"successful_party":"claimant|respondent|mixed|unclear",'
+        '"distinguishers":["..."],'
+        '"note":"ONE sentence",'
+        '"retrieval_score":null,'
+        '"retrieval_method":"string|null"'
         "}\n\n"
         "BAD OUTPUT TO FIX (convert it to the schema above):\n"
         + (bad_output or "EMPTY_OUTPUT")
     )
-
-
-def _extract_from_prompt(prompt_txt: str, key: str) -> Optional[str]:
-    """
-    Best-effort extraction of a string value from the original base prompt.
-    Looks for: "key": "VALUE"
-    """
-    needle = f"\"{key}\":"
-    j = prompt_txt.find(needle)
-    if j == -1:
-        return None
-    k = prompt_txt.find(":", j)
-    if k == -1:
-        return None
-    tail = prompt_txt[k + 1 :].lstrip()
-    if not tail.startswith("\""):
-        return None
-    tail = tail[1:]
-    end = tail.find("\"")
-    if end == -1:
-        return None
-    val = tail[:end]
-    return val.strip() or None
-
-
-def _coerce_missing_ids(obj: Dict[str, Any], base_prompt: str) -> Dict[str, Any]:
-    """
-    Fill atom_id/doc_id from the Input JSON payload in the prompt.
-
-    Treat placeholders (e.g. "", "string", all-zero UUID, "none", "unknown")
-    as invalid and overwrite them.
-
-    atom_id/doc_id are metadata, not model judgment, so overriding bad values
-    is correct and safe.
-    """
-    if not isinstance(obj, dict):
-        return obj
-
-    _BAD_VALUES = {
-        "",
-        "string",
-        "none",
-        "null",
-        "unknown",
-        "00000000-0000-0000-0000-000000000000",
-    }
-
-    def _bad(v: Any) -> bool:
-        s = ("" if v is None else str(v)).strip().lower()
-        return s in _BAD_VALUES
-
-    # Extract the Input JSON block (payload) from prompt
-    payload = None
-    try:
-        marker = "Input JSON"
-        i = base_prompt.rfind(marker)
-        if i != -1:
-            tail = base_prompt[i:]
-            payload = _extract_json_object(tail)
-    except Exception:
-        payload = None
-
-    if not isinstance(payload, dict):
-        return obj
-
-    # Pull authoritative IDs from payload
-    true_doc_id = str(payload.get("doc_id") or "").strip()
-
-    true_atom_id = ""
-    atom = payload.get("atom")
-    if isinstance(atom, dict):
-        true_atom_id = str(atom.get("atom_id") or "").strip()
-
-    # Overwrite if missing OR placeholder
-    if true_doc_id and (_bad(obj.get("doc_id")) or obj.get("doc_id") != true_doc_id):
-        obj["doc_id"] = true_doc_id
-
-    if true_atom_id and (_bad(obj.get("atom_id")) or obj.get("atom_id") != true_atom_id):
-        obj["atom_id"] = true_atom_id
-
-    return obj
 
 def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
     """
     Defensive normalizer for Verdict JSON objects before validation.
 
     Goals:
-    - Drop unknown root keys (so we can sanitize before enforcing allowed keys).
+    - Drop unknown root keys.
     - Ensure ALL required keys exist (fill defaults).
     - Coerce types (ints, bools, lists, strings).
     - Normalize enums (use_mode, outcomes, winners).
     - Accept common model variants:
         * anchors items may use "text" instead of "quote"
-        * winners may be "employer"/"employee" -> respondent/claimant
-    - Ensure anchors are well-formed dicts with required fields (para_id, quote, why_it_matters).
-    - Enforce low-signal rule: no anchors => relevant=false and cap score.
+        * winners may be "employer"/"employee"/"defendant"/"plaintiff" -> respondent/claimant
+        * appeal_outcome may be "denied"/"refused"/"granted" etc.
+        * use_mode may be "verify" etc.
+    - Ensure anchors are well-formed dicts with required fields.
+    - Enforce low-signal + consistency rules to avoid validator-triggered repairs:
+        * no anchors => relevant=False
+        * relevant=True requires precedent_score>0 (otherwise downgrade to relevant=False)
     """
 
     # ========= contract keys (root) =========
@@ -483,7 +392,7 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
         "retrieval_method",
     }
 
-    # Drop illegal/unknown root keys (e.g., "precedent_type", "why_it_matters", etc.)
+    # Drop illegal/unknown root keys
     if isinstance(obj, dict):
         obj = {k: v for k, v in obj.items() if k in _ALLOWED_KEYS}
     else:
@@ -543,14 +452,55 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
 
     def _map_party(x: Any) -> str:
         s = _clean_str(x).lower()
-        # common synonyms
-        if s in {"claimant", "employee", "appellant", "worker"}:
+
+        # normalize blanks / "none"
+        if s in {"", "none", "null", "unknown"}:
+            return "unclear"
+
+        # claimant-ish
+        if s in {"claimant", "employee", "appellant", "worker", "plaintiff", "petitioner"}:
             return "claimant"
-        if s in {"respondent", "employer", "company"}:
+
+        # respondent-ish
+        if s in {"respondent", "employer", "company", "defendant"}:
             return "respondent"
+
         if s == "mixed":
             return "mixed"
+
         return "unclear"
+
+    def _map_appeal_outcome(x: Any) -> str:
+        s = _clean_str(x).lower()
+        if s in {"", "none", "null"}:
+            return "unknown"
+
+        # canonical
+        if s in {"allowed", "dismissed", "remitted", "mixed", "unknown"}:
+            return s
+
+        # common synonyms
+        if s in {"denied", "refused", "rejected"}:
+            return "dismissed"
+        if s in {"granted", "accepted"}:
+            return "allowed"
+        if s in {"sent_back", "returned", "reheard"}:
+            return "remitted"
+
+        return "unknown"
+
+    def _map_use_mode(x: Any, *, relevant: bool) -> str:
+        s = _clean_str(x).lower()
+
+        # common junk value seen in your logs
+        if s == "verify":
+            return "support" if relevant else "contrast"
+
+        if s in {"support", "contrast", "harmful"}:
+            return s
+
+        # fallback
+        return "support" if relevant else "contrast"
 
     # ---------- core fields ----------
     obj["atom_id"] = _clean_str(obj.get("atom_id"))
@@ -623,7 +573,7 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
 
         pid = _clean_str(a.get("para_id"))
 
-        # Accept either "quote" or "text" (model often emits "text")
+        # Accept either "quote" or "text"
         q_raw = a.get("quote", None)
         if q_raw is None:
             q_raw = a.get("text", None)
@@ -639,23 +589,14 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
     obj["anchors"] = anchors_out
 
     # ---------- enum normalization ----------
-    # ---------- enum normalization ----------
     rel = bool(obj.get("relevant", False))
-
-    um = _clean_str(obj.get("use_mode", "")).lower()
-    if um not in {"support", "contrast", "harmful"}:
-        um = "support" if rel else "contrast"
-    if not rel:
-        um = "contrast"
-    obj["use_mode"] = um
 
     obj["proposition_winner"] = _map_party(obj.get("proposition_winner", ""))
     obj["successful_party"] = _map_party(obj.get("successful_party", ""))
 
-    ao = _clean_str(obj.get("appeal_outcome", "")).lower()
-    if ao not in {"allowed", "dismissed", "remitted", "mixed", "unknown"}:
-        ao = "unknown"
-    obj["appeal_outcome"] = ao
+    obj["appeal_outcome"] = _map_appeal_outcome(obj.get("appeal_outcome", ""))
+
+    obj["use_mode"] = _map_use_mode(obj.get("use_mode", ""), relevant=rel)
 
     # ---------- low-signal rule ----------
     if len(obj["anchors"]) == 0:
@@ -663,36 +604,42 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
         obj["use_mode"] = "contrast"
         obj["precedent_score"] = min(obj["precedent_score"], 40)
 
-    if not obj["relevant"]:
-        obj["precedent_score"] = min(obj["precedent_score"], 40)
+    # ---------- consistency rule: avoid validator tripwire ----------
+    # Your validator requires: if relevant=True then precedent_score > 0
+    if bool(obj.get("relevant", False)) and int(obj.get("precedent_score", 0)) <= 0:
+        obj["relevant"] = False
+        obj["use_mode"] = "contrast"
+        obj["precedent_score"] = 0
 
-    # ✅ FINAL CONSISTENCY GUARD
-    # If relevant=True, "contrast" makes no sense for your semantics.
+    # If not relevant, cap score
+    if not obj["relevant"]:
+        obj["precedent_score"] = min(int(obj["precedent_score"]), 40)
+
+    # FINAL CONSISTENCY GUARD
     if obj["relevant"] and obj["use_mode"] == "contrast":
         obj["use_mode"] = "support"
 
     return obj
 
-
-def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
+def verify_with_ollama(
+    prompt: str,
+    cfg: LLMClientConfig,
+    *,
+    atom_id: str,
+    doc_id: str,
+) -> Verdict:
     """
-    Calls Ollama and returns a validated Verdict.
-
-    HARDENED DEBUG VERSION (drop-in):
-    - Keeps your debug prints
-    - Adds robust JSON extraction fallback when _extract_json_object can't find braces
-    - Detects degenerate outputs (base64-ish / endless token spam / no JSON) early
-    - Keeps Attempt A -> Attempt B repair behavior unchanged
+    Content-only LLM verdict:
+    - Model does NOT output atom_id/doc_id/matched_X.
+    - We enrich those deterministically after validation.
     """
     base_prompt = prompt
     last_err: Optional[Exception] = None
     last_txt: str = ""
 
-    _ALLOWED_KEYS = {
-        "atom_id",
-        "doc_id",
+    # Content-only allowed keys (what the model is allowed to return)
+    _ALLOWED_MODEL_KEYS = {
         "relevant",
-        "matched_X",
         "precedent_score",
         "confidence",
         "anchors",
@@ -717,7 +664,6 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
         "matched_paras",
     }
 
-    # --- local hash helper ---
     def _h(s: str) -> str:
         import hashlib
         return hashlib.sha1((s or "").encode("utf-8", errors="ignore")).hexdigest()[:10]
@@ -728,13 +674,13 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
         keys = set(obj.keys())
         if keys & _WRONG_OBJECT_KEYS:
             return True
-        core = {"atom_id", "doc_id", "relevant", "anchors", "precedent_score", "confidence"}
+        core = {"relevant", "anchors", "precedent_score", "confidence"}
         return not core.issubset(keys)
 
-    def _enforce_allowed_keys(obj: Dict[str, Any]) -> None:
+    def _enforce_allowed_model_keys(obj: Dict[str, Any]) -> None:
         keys = set(obj.keys())
-        extra = keys - _ALLOWED_KEYS
-        missing = _ALLOWED_KEYS - keys
+        extra = keys - _ALLOWED_MODEL_KEYS
+        missing = _ALLOWED_MODEL_KEYS - keys
         if extra:
             raise ValueError(f"Verdict JSON included illegal keys: {sorted(list(extra))[:12]}")
         if missing:
@@ -745,67 +691,36 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
             "IMPORTANT (NON-NEGOTIABLE OUTPUT CONTRACT):\n"
             "- Output ONE JSON object ONLY that matches the Verdict schema.\n"
             "- Use ONLY allowed keys; no extras.\n"
-            "- precedent_score and confidence must be integers 0..100 (never -1).\n"
+            "- precedent_score and confidence must be integers 0..100.\n"
             "- anchors MUST be a list of objects, never strings. If you cannot provide para_id, output anchors=[].\n"
             "- Do NOT output retrieval reports or paragraph dumps.\n"
-            "- Do NOT output an 'answer' field or any wrapper object. Output the Verdict object ONLY.\n"
-            "- NEVER output a JSON object with a single key like {'answer': ...}. That is invalid.\n"
-            "- You must output ALL required keys, including anchors/use_mode/etc.\n"
             f"- Fix required because: {why}\n\n"
             + p
         )
 
-    # --- NEW: degeneracy + robust extraction helpers ---
     def _looks_degenerate(txt: str) -> bool:
-        """
-        Heuristic: catches the X5-style outputs where the model streams
-        long base64/underscore/token spam and never produces JSON braces.
-        """
         if not txt:
             return True
-
-        # If there are no braces at all, it's almost surely not a verdict.
         if "{" not in txt or "}" not in txt:
-            # "base64-ish" / id spam: very long, few spaces, lots of underscores/digits/letters
             t = txt.strip()
-            if len(t) >= 400:
-                spaces = t.count(" ")
-                if spaces <= 3:
-                    # ratio of "safe" token chars
-                    import string
-                    allowed = set(string.ascii_letters + string.digits + "_-=")
-                    ratio = sum(1 for c in t[:800] if c in allowed) / max(1, min(len(t), 800))
-                    if ratio > 0.90:
-                        return True
-            return True  # no braces => degenerate for our use case
-
-        # If braces exist but are extremely imbalanced, often a dump/stream failure
+            return len(t) >= 50
         if txt.count("{") >= 1 and txt.count("}") == 0:
             return True
-
-        # Extra guard: absurdly long single line tends to be a runaway token stream
         lines = (txt or "").splitlines()
         if lines and max(len(ln) for ln in lines) > 5000:
             return True
-
         return False
 
     def _extract_json_object_robust(txt: str) -> Dict[str, Any]:
-        """
-        First try the repo extractor. If it fails, do a minimal brace-slice fallback:
-        take substring from first '{' to last '}' and attempt json.loads.
-        """
         try:
             return _extract_json_object(txt)
         except Exception as e:
-            # fallback only if braces exist
             if "{" in (txt or "") and "}" in (txt or ""):
                 a = txt.find("{")
                 b = txt.rfind("}")
                 if 0 <= a < b:
                     chunk = txt[a : b + 1]
                     try:
-                        import json
                         return json.loads(chunk)
                     except Exception:
                         pass
@@ -819,61 +734,46 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
             txt = _ollama_generate(prompt_to_send, cfg, force_json=True)
             last_txt = txt
 
-            # --- DEBUG (Attempt A) ---
             try:
                 print("\n[moltie.client] ===== Attempt A =====")
                 print("[moltie.client] attempt:", attempt)
                 print("[moltie.client] prompt_hash:", _h(prompt_to_send))
-                print("[moltie.client] prompt_head:\n", (prompt_to_send or "")[:600])
                 print("[moltie.client] raw_len:", len(txt or ""))
                 print("[moltie.client] raw_head:\n", (txt or "")[:800])
                 print("[moltie.client] raw_tail:\n", (txt or "")[-400:])
-            except Exception as _dbg_e:
-                print("[moltie.client] debug_print_failed:", repr(_dbg_e))
+            except Exception:
+                pass
 
             if len(txt) > _MAX_RAW_OUTPUT_CHARS:
                 raise ValueError("Model output too long (likely paragraph dump).")
 
-            # --- NEW: degeneracy detect BEFORE extraction (gives better error + repair trigger) ---
             if _looks_degenerate(txt):
-                raise ValueError("Degenerate model output (no usable JSON braces / token spam).")
+                raise ValueError("Degenerate model output (no usable JSON).")
 
             obj = _extract_json_object_robust(txt)
-
-            # --- DEBUG: extracted obj keys (Attempt A) ---
-            try:
-                print("[moltie.client] extracted_keys:", sorted(list((obj or {}).keys()))[:40])
-                print("[moltie.client] extracted_atom_id:", (obj or {}).get("atom_id"))
-                print("[moltie.client] extracted_doc_id:", (obj or {}).get("doc_id"))
-            except Exception as _dbg_e:
-                print("[moltie.client] debug_obj_failed:", repr(_dbg_e))
-
-            obj = _coerce_missing_ids(obj, base_prompt)
-
-            # --- DEBUG: post-coerce ids (Attempt A) ---
-            try:
-                print("[moltie.client] post_coerce_atom_id:", (obj or {}).get("atom_id"))
-                print("[moltie.client] post_coerce_doc_id:", (obj or {}).get("doc_id"))
-            except Exception as _dbg_e:
-                print("[moltie.client] debug_post_coerce_failed:", repr(_dbg_e))
 
             if _is_wrong_object(obj):
                 raise ValueError(f"Wrong JSON object returned (not a Verdict). Keys={sorted(list(obj.keys()))[:12]}")
 
-            _enforce_allowed_keys(obj)
+            _enforce_allowed_model_keys(obj)
 
             obj = _sanitize_verdict_object(obj)
 
-            VerdictValidator.validate(obj)
-            return Verdict.from_dict(obj)
+            # ENRICH METADATA (deterministic)
+            enriched = dict(obj)
+            enriched["atom_id"] = atom_id
+            enriched["doc_id"] = doc_id
+            enriched["matched_X"] = [atom_id] if enriched.get("relevant") else []
+
+            # Now validate against your full Verdict schema/domain object
+            VerdictValidator.validate(enriched)
+            return Verdict.from_dict(enriched)
 
         except Exception as e:
-            # --- DEBUG: why Attempt A failed ---
             try:
                 print("[moltie.client] Attempt A exception:", repr(e))
             except Exception:
                 pass
-
             last_err = e
             prompt_to_send = _prepend_correction(base_prompt, why=str(e))
 
@@ -882,11 +782,11 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
             repair_prompt = (
                 "REPAIR TASK:\n"
                 "Return ONE Verdict JSON object ONLY with EXACT allowed keys.\n"
-                "precedent_score and confidence MUST be integers 0..100 (never -1). If unknown, use 0.\n"
+                "precedent_score and confidence MUST be integers 0..100. If unknown, use 0.\n"
                 "anchors MUST be a list of objects, never strings. If you cannot provide para_id, set anchors=[].\n"
                 "Do NOT output retrieval reports or paragraph dumps.\n\n"
                 "If anchors is empty, set relevant=false and use_mode='contrast' and precedent_score<=40.\n"
-                "You MUST use the following Input JSON evidence. Copy quotes EXACTLY as substrings.\n\n"
+                "You MUST use the provided evidence. Copy quotes EXACTLY as substrings.\n\n"
                 + base_prompt
                 + "\n\nMODEL LAST OUTPUT (for reference only; do not copy text unless it appears verbatim in evidence):\n"
                 + _make_repair_prompt(last_txt)
@@ -894,61 +794,44 @@ def verify_with_ollama(prompt: str, cfg: LLMClientConfig) -> Verdict:
 
             txt2 = _ollama_generate(repair_prompt, cfg, force_json=True)
 
-            # --- DEBUG (Attempt B) ---
             try:
                 print("\n[moltie.client] ===== Attempt B (REPAIR) =====")
                 print("[moltie.client] attempt:", attempt)
                 print("[moltie.client] repair_prompt_hash:", _h(repair_prompt))
-                print("[moltie.client] repair_prompt_head:\n", (repair_prompt or "")[:600])
                 print("[moltie.client] raw2_len:", len(txt2 or ""))
                 print("[moltie.client] raw2_head:\n", (txt2 or "")[:800])
                 print("[moltie.client] raw2_tail:\n", (txt2 or "")[-400:])
-            except Exception as _dbg_e:
-                print("[moltie.client] debug_print_failed:", repr(_dbg_e))
+            except Exception:
+                pass
 
             if len(txt2) > _MAX_RAW_OUTPUT_CHARS:
                 raise ValueError("Repair output too long (likely paragraph dump).")
 
-            # --- NEW: degeneracy detect BEFORE extraction ---
             if _looks_degenerate(txt2):
-                raise ValueError("Degenerate repair output (no usable JSON braces / token spam).")
+                raise ValueError("Degenerate repair output (no usable JSON).")
 
             obj2 = _extract_json_object_robust(txt2)
-
-            # --- DEBUG: extracted obj2 keys (Attempt B) ---
-            try:
-                print("[moltie.client] extracted2_keys:", sorted(list((obj2 or {}).keys()))[:40])
-                print("[moltie.client] extracted2_atom_id:", (obj2 or {}).get("atom_id"))
-                print("[moltie.client] extracted2_doc_id:", (obj2 or {}).get("doc_id"))
-            except Exception as _dbg_e:
-                print("[moltie.client] debug_obj2_failed:", repr(_dbg_e))
-
-            obj2 = _coerce_missing_ids(obj2, base_prompt)
-
-            # --- DEBUG: post-coerce ids (Attempt B) ---
-            try:
-                print("[moltie.client] post_coerce2_atom_id:", (obj2 or {}).get("atom_id"))
-                print("[moltie.client] post_coerce2_doc_id:", (obj2 or {}).get("doc_id"))
-            except Exception as _dbg_e:
-                print("[moltie.client] debug_post_coerce2_failed:", repr(_dbg_e))
 
             if _is_wrong_object(obj2):
                 raise ValueError(f"Repair returned wrong JSON object. Keys={sorted(list(obj2.keys()))[:12]}")
 
-            _enforce_allowed_keys(obj2)
+            _enforce_allowed_model_keys(obj2)
 
             obj2 = _sanitize_verdict_object(obj2)
 
-            VerdictValidator.validate(obj2)
-            return Verdict.from_dict(obj2)
+            enriched2 = dict(obj2)
+            enriched2["atom_id"] = atom_id
+            enriched2["doc_id"] = doc_id
+            enriched2["matched_X"] = [atom_id] if enriched2.get("relevant") else []
+
+            VerdictValidator.validate(enriched2)
+            return Verdict.from_dict(enriched2)
 
         except Exception as e2:
-            # --- DEBUG: why Attempt B failed ---
             try:
                 print("[moltie.client] Attempt B exception:", repr(e2))
             except Exception:
                 pass
-
             last_err = e2
             prompt_to_send = _prepend_correction(base_prompt, why=str(e2))
             continue

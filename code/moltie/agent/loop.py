@@ -446,7 +446,13 @@ def run_harvest_then_reason_on_one_doc(
             print("[moltie.forensic] sent_para_ids_missing_in_prompt_head:", missing_in_prompt[:8])
             print("[moltie.forensic] ===============================\n")
 
-        verdict = verify_with_ollama(prompt, llm_cfg)
+        # ✅ FIX: pass metadata as args (not in prompt)
+        verdict = verify_with_ollama(
+            prompt,
+            llm_cfg,
+            atom_id=atom.atom_id,
+            doc_id=doc_id,
+        )
 
         # FIX: enforce matched_X strictly (centralized)
         verdict = enforce_matched_x(verdict, atom_id=atom.atom_id, allowed_x=getattr(atom, "x_tests", []) or [])
@@ -534,7 +540,14 @@ def run_harvest_then_reason_on_one_doc(
     }
 
     prompt2 = build_verifier_prompt(atom=atom, evidence_pack=evidence_pack2, cfg=run_cfg)
-    verdict2 = verify_with_ollama(prompt2, llm_cfg)
+
+    # ✅ FIX: pass metadata as args (not in prompt)
+    verdict2 = verify_with_ollama(
+        prompt2,
+        llm_cfg,
+        atom_id=atom.atom_id,
+        doc_id=doc_id,
+    )
     verdict2 = enforce_matched_x(verdict2, atom_id=atom.atom_id, allowed_x=getattr(atom, "x_tests", []) or [])
 
     # -----------------------------
@@ -712,7 +725,13 @@ def run_agent_on_one_doc(
         temp_i = _iter_temperature(i)
         llm_cfg_i = replace(llm_cfg, temperature=temp_i)
 
-        verdict = verify_with_ollama(prompt, llm_cfg_i)
+        # ✅ FIX: pass metadata as args (not in prompt)
+        verdict = verify_with_ollama(
+            prompt,
+            llm_cfg_i,
+            atom_id=atom.atom_id,
+            doc_id=doc_id,
+        )
         verdict = enforce_matched_x(verdict, atom_id=atom.atom_id, allowed_x=getattr(atom, "x_tests", []) or [])
 
         if not getattr(verdict, "atom_id", "").strip():
