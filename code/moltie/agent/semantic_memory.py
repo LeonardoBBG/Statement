@@ -17,11 +17,31 @@ _DASH = re.compile(r"[\u2010\u2011\u2012\u2013\u2014\u2212]")
 def _norm(s: str) -> str:
     if not s:
         return ""
+
+    # Remove zero-width chars
     s = _ZW.sub("", s)
+
+    # Normalize quotes
     s = s.replace("“", '"').replace("”", '"').replace("’", "'").replace("‘", "'")
+
+    # Normalize dashes
     s = _DASH.sub("-", s)
+
+    # NBSP
     s = s.replace("\u00a0", " ")
+
+    # --- CRITICAL FIXES BELOW ---
+
+    # 1) Fix spaced hyphens: "e -mail" -> "e-mail"
+    s = re.sub(r"\s*-\s*", "-", s)
+
+    # 2) Fix broken intra-word splits: "sen d" -> "send"
+    # Only merge if both sides are letters and it's a single space
+    s = re.sub(r"\b([A-Za-z]) ([A-Za-z])\b", r"\1\2", s)
+
+    # 3) Collapse whitespace
     s = _WS.sub(" ", s).strip()
+
     return s
 
 
