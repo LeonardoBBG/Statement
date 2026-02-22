@@ -64,88 +64,159 @@ def _sentenceish_split(text: str, max_chunk_chars: int = 500) -> List[str]:
     return out
 
 
-def _best_substring_snap(
-    quote: str,
-    para_text: str,
-    *,
-    max_window_chars: int = 900,
-    stride_chars: int = 60,
-) -> Optional[str]:
+def _best_substring_snap(raw_paragraph: str, raw_quote: str) -> str | None:
     """
-    Deterministic "snap-to-verbatim":
-    Find a verbatim substring from para_text whose normalized form best contains the normalized quote,
-    or best overlaps it.
+    Return a verbatim substring from raw_paragraph that best matches raw_quote.
 
-    Returns a verbatim substring from the ORIGINAL para_text, or None.
+    Key feature: handles PDF extraction artifacts like:
+      - intra-word spaces ("sen d" -> "send")
+      - spaces around hyphens ("e -mail" -> "e-mail")
+      - NBSP / weird whitespace collapsing
+      - curly quotes / odd dashes normalization for matching only
+
+    Implementation:
+      - Build a normalized paragraph string WITH a mapping from normalized indices -> raw indices.
+      - Normalize the quote similarly (without mapping).
+      - Find the normalized quote inside normalized paragraph; map back to raw substring.
     """
-    if not quote or not para_text:
+
+    if not raw_paragraph or not raw_quote:
         return None
 
-    # Fast path: exact
-    if quote in para_text:
-        return quote
+    def _canon_char(c: str) -> str:
+        # Normalize visually equivalent punctuation for MATCHING only.
+        # Mapping back uses raw indices, so verbatim is preserved in output.
+        if c in ("\u2018", "\u2019", "\u2032"):
+            return "'"
+        if c in ("\u201C", "\u201D", "\u2033"):
+            return '"'
+        if c in ("\u2013", "\u2014", "\u2212"):
+            return "-"
+        if c == "\u00A0":  # NBSP
+            return " "
+        if c == "\u00AD":  # soft hyphen
+            return ""
+        return c
 
-    nq = _norm(quote)
-    nt = _norm(para_text)
-    if not nq or not nt:
+    def _is_ws(c: str) -> bool:
+        return c.isspace() or c == "\u00A0"
+
+    def _next_non_ws(s: str, i: int) -> tuple[int, str] | None:
+        n = len(s)
+        j = i
+        while j < n and _is_ws(s[j]):
+            j += 1
+        if j >= n:
+            return None
+        return j, _canon_char(s[j])
+
+    def _norm_with_map(raw: str) -> tuple[str, list[int]]:
+        """
+        Returns:
+          norm_str: normalized string used for matching
+          norm2raw: list where norm2raw[k] = raw_index of the raw char that produced norm_str[k]
+        """
+        norm_chars: list[str] = []
+        norm2raw: list[int] = []
+
+        n = len(raw)
+        i = 0
+
+        # Track last emitted non-space char to decide whether to drop intra-word spaces.
+        last_emitted: str | None = None
+
+        while i < n:
+            c_raw = raw[i]
+
+            # whitespace run
+            if _is_ws(c_raw):
+                nxt = _next_non_ws(raw, i)
+                # Find the end of this whitespace run
+                j = i
+                while j < n and _is_ws(raw[j]):
+                    j += 1
+
+                if nxt is None:
+                    # trailing whitespace -> ignore
+                    i = j
+                    continue
+
+                _, nxt_c = nxt
+                prev = last_emitted
+
+                # Drop whitespace if it appears to be inside a word: "sen d" -> "send"
+                # Also drop around hyphens: "e -mail" or "e- mail" -> "e-mail"
+                if prev and prev.isalnum() and nxt_c and nxt_c.isalnum():
+                    i = j
+                    continue
+                if (prev == "-" and nxt_c) or (nxt_c == "-" and prev):
+                    i = j
+                    continue
+
+                # Otherwise collapse to single space (but avoid double spaces)
+                if norm_chars and norm_chars[-1] != " ":
+                    norm_chars.append(" ")
+                    norm2raw.append(i)  # map space to first ws char of the run
+                    last_emitted = " "
+                i = j
+                continue
+
+            # non-whitespace char
+            c = _canon_char(c_raw)
+            if c == "":
+                i += 1
+                continue
+
+            # Lower-case for matching
+            c_low = c.lower()
+            norm_chars.append(c_low)
+            norm2raw.append(i)
+            last_emitted = c_low
+            i += 1
+
+        # Trim leading/trailing spaces in normalized form (adjust mapping accordingly)
+        # Leading
+        while norm_chars and norm_chars[0] == " ":
+            norm_chars.pop(0)
+            norm2raw.pop(0)
+        # Trailing
+        while norm_chars and norm_chars[-1] == " ":
+            norm_chars.pop()
+            norm2raw.pop()
+
+        return "".join(norm_chars), norm2raw
+
+    def _norm_quote(raw: str) -> str:
+        # Quote normalization without mapping (same rules as paragraph).
+        norm, _ = _norm_with_map(raw)
+        return norm
+
+    para_norm, norm2raw = _norm_with_map(raw_paragraph)
+    quote_norm = _norm_quote(raw_quote)
+
+    if not para_norm or not quote_norm:
         return None
 
-    # Fast path: normalized containment
-    if nq in nt:
-        best = None
-        best_len = None
+    # Direct normalized substring search
+    pos = para_norm.find(quote_norm)
+    if pos != -1:
+        start_norm = pos
+        end_norm = pos + len(quote_norm)
 
-        raw = para_text
-        L = len(raw)
-        win = min(max_window_chars, max(200, len(quote) + 120))
-        stride = max(20, stride_chars)
+        # Map normalized span -> raw span
+        if start_norm < 0 or end_norm > len(norm2raw) or start_norm >= end_norm:
+            return None
 
-        for s in range(0, max(1, L), stride):
-            e = min(L, s + win)
-            w = raw[s:e]
-            if nq in _norm(w):
-                cur_len = len(w)
-                if best is None or cur_len < best_len:
-                    best = w
-                    best_len = cur_len
-            if e >= L:
-                break
+        start_raw = norm2raw[start_norm]
+        end_raw_inclusive = norm2raw[end_norm - 1]
+        raw_slice = raw_paragraph[start_raw : end_raw_inclusive + 1]
 
-        if best is not None:
-            return best.strip()
+        # Sanity: must be an actual substring of the raw paragraph (always true by construction)
+        if raw_slice and raw_slice in raw_paragraph:
+            return raw_slice
 
-    # Fallback: token overlap scoring on windows (still deterministic)
-    q_toks = set(_norm(quote).lower().split())
-    if not q_toks:
-        return None
-
-    raw = para_text
-    L = len(raw)
-    win = min(max_window_chars, max(240, len(quote) + 160))
-    stride = max(20, stride_chars)
-
-    best_w = None
-    best_score = 0.0
-
-    for s in range(0, max(1, L), stride):
-        e = min(L, s + win)
-        w = raw[s:e]
-        w_toks = set(_norm(w).lower().split())
-        if not w_toks:
-            continue
-        inter = len(q_toks & w_toks)
-        score = inter / max(1, len(q_toks))
-        if score > best_score:
-            best_score = score
-            best_w = w
-        if e >= L:
-            break
-
-    if best_w is not None and best_score >= 0.70:
-        return best_w.strip()
-
+    # If we can't find it, return None and let upstream decide (semantic search / drop, etc.)
     return None
-
 
 # ---------------------------
 # Embedding providers (pluggable)
@@ -336,171 +407,129 @@ class SemanticMemory:
         return idxs
 
     
-    def snap_anchor(
-        self,
-        *,
-        para_id: str,
-        quote: str,
-        allowed_para_ids: Optional[set[str]] = None,
-    ) -> Optional[Tuple[str, str]]:
+    def snap_anchor(self, anchor, para_map, allowed_para_ids=None):
         """
-        Returns (para_id, verbatim_quote) or None.
+        Attempt to 'snap' anchor.quote to an exact verbatim substring inside an allowed paragraph.
 
-        Strategy:
-        1) Enforce allowed_para_ids (hard gate).
-        2) Try snap within the provided para_id first.
-        3) If not found, query semantic memory for similar chunks.
-        - Optionally prefer same para_id ordering.
-        - Apply a similarity threshold when crossing to other para_ids to prevent drift.
-        4) For each candidate para, attempt deterministic snap-to-verbatim.
-
-        Note: Requires _query_indices() to have populated self._query_cache_scores (optional).
-        If scores cache is absent, we conservatively allow the search but still rely on snap-to-verbatim.
+        - First try within anchor.para_id (if allowed).
+        - If that fails, use semantic search over allowed paras to pick candidates, then try snapping there.
+        - Returns a NEW anchor with corrected (para_id, quote) if successful, else None.
         """
-        if not quote:
+        if not anchor:
             return None
 
-        pid0 = (para_id or "").strip()
+        pid = getattr(anchor, "para_id", None)
+        q = getattr(anchor, "quote", None) or ""
 
-        # Hard gate: if caller specified allowed ids and the requested para isn't allowed, don't move.
-        if allowed_para_ids is not None and pid0 and pid0 not in allowed_para_ids:
+        if not q or not isinstance(q, str):
             return None
 
-        # 1) Same-para snap first (best precision)
-        if pid0:
-            para_txt = self._para_text.get(pid0, "")
-            snapped = _best_substring_snap(quote, para_txt)
+        if allowed_para_ids is None:
+            allowed_para_ids = set(para_map.keys())
+        else:
+            allowed_para_ids = set(allowed_para_ids)
+
+        # 1) Try snapping inside same paragraph (if allowed)
+        if pid in allowed_para_ids:
+            raw = para_map.get(pid, "") or ""
+            snapped = _best_substring_snap(raw, q)
             if snapped:
-                return (pid0, snapped)
+                try:
+                    return dc_replace(anchor, quote=snapped)
+                except Exception:
+                    try:
+                        anchor.quote = snapped
+                        return anchor
+                    except Exception:
+                        return None
 
-        # 2) Semantic candidates
-        idxs = self._query_indices(quote)
-        if not idxs:
-            return None
+        # 2) Semantic fallback: search among allowed paras and try snapping there
+        # NOTE: semantic search can be strict; snapping is the gate.
+        try:
+            candidates = self.search(
+                query=q,
+                allowed_para_ids=allowed_para_ids,
+                top_k=5,
+                min_score=0.62,
+            )
+        except Exception:
+            candidates = []
 
-        # Pull scores if available (populated by _query_indices)
-        key = _h(quote)
-        scored: List[Tuple[int, float]] = []
-        if hasattr(self, "_query_cache_scores"):
-            try:
-                scored = list(getattr(self, "_query_cache_scores").get(key, []))
-            except Exception:
-                scored = []
-
-        score_map: Dict[int, float] = {i: s for i, s in scored} if scored else {}
-
-        # Similarity threshold for crossing para boundaries.
-        # With TF-IDF cosine, 0.80 is a decent "this is about the same sentence" gate.
-        # Tune later if needed.
-        cross_para_min_sim = 0.80
-
-        # Order indices: prefer same para_id if requested, then by similarity (if available), then stable index.
-        def _rank(i: int) -> Tuple[int, float, int]:
-            same = 0 if (self.prefer_same_para and pid0 and self.items[i].para_id == pid0) else 1
-            sim = score_map.get(i, 0.0)
-            return (same, -sim, i)
-
-        ordered = sorted(idxs, key=_rank)
-
-        for i in ordered:
-            it = self.items[i]
-            pid2 = it.para_id
-
-            if allowed_para_ids is not None and pid2 not in allowed_para_ids:
+        for pid2, score in (candidates or []):
+            if pid2 not in allowed_para_ids:
+                continue
+            raw2 = para_map.get(pid2, "") or ""
+            snapped2 = _best_substring_snap(raw2, q)
+            if not snapped2:
                 continue
 
-            # If we're moving to another paragraph, require similarity threshold when available.
-            if pid0 and pid2 != pid0 and score_map:
-                if score_map.get(i, 0.0) < cross_para_min_sim:
-                    continue
-
-            txt2 = self._para_text.get(pid2, "")
-            snapped2 = _best_substring_snap(quote, txt2)
-            if snapped2:
-                return (pid2, snapped2)
+            try:
+                return dc_replace(anchor, para_id=pid2, quote=snapped2)
+            except Exception:
+                try:
+                    anchor.para_id = pid2
+                    anchor.quote = snapped2
+                    return anchor
+                except Exception:
+                    return None
 
         return None
 
 
-    def repair_verdict_anchors(
-        self,
-        verdict: Any,
-        *,
-        allowed_para_ids: Optional[set[str]] = None,
-    ) -> Tuple[Any, int]:
+    def repair_verdict_anchors(self, verdict, para_map, mode: str = "A"):
         """
-        Returns (new_verdict, repaired_count).
-        Works with frozen dataclass anchors by rebuilding the anchors list.
+        Repair verdict anchors so that each anchor.quote is VERBATIM (substring) of para_map[para_id].
 
-        Rules:
-        - If quote is already a strict verbatim substring of the raw paragraph text, keep it.
-        - If quote is "close" under normalization, attempt snap-to-verbatim and replace quote with verbatim slice.
-        - If quote is not verbatim and not close, still attempt snap-to-verbatim.
-        - allowed_para_ids is a hard constraint: do not move to disallowed paras.
+        Modes:
+        - "A" (default): try to snap; if an anchor cannot be repaired verbatim, DROP it.
+                        (prevents one bad anchor from poisoning the whole run)
+        - "B" (stricter): if ANY anchor cannot be repaired, return verdict unchanged (current behavior).
+
+        Returns:
+        (verdict2, repaired_count)
+            repaired_count counts anchors that were changed OR dropped (mode A).
         """
         anchors = getattr(verdict, "anchors", None) or []
         if not anchors:
             return verdict, 0
 
+        mode = (mode or "A").strip().upper()
+        if mode not in ("A", "B"):
+            mode = "A"
+
+        allowed_para_ids = set(para_map.keys())
+
         repaired = 0
-        new_anchors: List[Any] = []
+        new_anchors = []
+        failed_any = False
 
         for a in anchors:
-            pid = _anchor_get(a, "para_id")
-            q = _anchor_get(a, "quote")
+            a2 = self.snap_anchor(a, para_map, allowed_para_ids=allowed_para_ids)
 
-            if not pid or not q:
-                new_anchors.append(a)
-                continue
-
-            pid_s = str(pid).strip()
-            q_s = str(q)
-
-            # Hard gate: if allowed_para_ids is specified and the given pid isn't allowed, we cannot repair it.
-            # (We keep as-is; validator can reject later.)
-            if allowed_para_ids is not None and pid_s and pid_s not in allowed_para_ids:
-                new_anchors.append(a)
-                continue
-
-            txt = self._para_text.get(pid_s, "")
-
-            # 1) Strict verbatim: keep
-            if q_s and txt and (q_s in txt):
-                new_anchors.append(a)
-                continue
-
-            # 2) If it's close under normalization, we MUST snap to verbatim (do not accept model text).
-            close_norm = bool(_norm(q_s)) and bool(_norm(txt)) and (_norm(q_s) in _norm(txt))
-
-            # 3) Attempt snap-to-verbatim (same para first; then semantic candidates if needed)
-            got = self.snap_anchor(
-                para_id=pid_s,
-                quote=q_s,
-                allowed_para_ids=allowed_para_ids,
-            )
-
-            if not got:
-                # If it was "close" but we couldn't snap, keep as-is (validator will likely reject).
-                # If it wasn't close, same outcome.
-                new_anchors.append(a)
-                continue
-
-            pid2, q2 = got
-
-            # Only count as repair if we actually changed the quote or para_id OR it was a close_norm case.
-            changed = (pid2 != pid_s) or (q2 != q_s) or close_norm
-
-            if isinstance(a, dict):
-                new_anchors.append(_anchor_set_dict(a, pid2, q2))
-                if changed:
+            if a2 is None:
+                failed_any = True
+                if mode == "A":
+                    # Drop the anchor (do NOT keep invalid anchors)
                     repaired += 1
-            else:
-                try:
-                    new_anchors.append(dc_replace(a, para_id=pid2, quote=q2))
-                    if changed:
-                        repaired += 1
-                except Exception:
+                    continue
+                else:
+                    # Mode B: keep as-is; this will likely fail validation upstream
                     new_anchors.append(a)
+                    continue
+
+            # Anchor repaired (or at least snapped to verbatim)
+            try:
+                if a2 != a:
+                    repaired += 1
+            except Exception:
+                # If objects aren't comparable, count it as repaired when snapping succeeded.
+                repaired += 1
+
+            new_anchors.append(a2)
+
+        if mode == "B" and failed_any:
+            # Strict mode: refuse partial repairs; keep original to force rejection upstream
+            return verdict, 0
 
         try:
             verdict2 = dc_replace(verdict, anchors=new_anchors)
