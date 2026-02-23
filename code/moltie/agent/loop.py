@@ -16,6 +16,10 @@ from ..schemas.verdict import Verdict
 from .refine import refine_query
 from .retrieve import retrieve_windowed_evidence
 from .semantic_memory import SemanticMemory
+from pathlib import Path
+import json
+
+
 
 @dataclass
 class LoopResult:
@@ -120,7 +124,7 @@ def enforce_matched_x(verdict: "Verdict", atom_id: str, allowed_x: list[str]) ->
 
     return replace(verdict, matched_X=mx2, relevant=relevant2)
 
-def _filter_front_matter(paras, min_keep=4, debug=False, head_limit=40):
+def _filter_front_matter(paras, min_keep=4, debug=True, head_limit=40):
     if not paras:
         return paras
 
@@ -596,6 +600,7 @@ def run_agent_on_one_doc(
     run_cfg: RunConfig,
     llm_cfg: LLMClientConfig,
 ) -> LoopResult:
+
     # ---- FAIL-FAST invariants ----
     assert isinstance(doc_id, str) and doc_id.strip(), "doc_id must be non-empty"
     assert isinstance(paras, list) and len(paras) > 0, "paras must be a non-empty list"
@@ -604,9 +609,106 @@ def run_agent_on_one_doc(
     # --- E2E GUARD: fix the 'n_paras=1 huge blob' PDF extraction failure mode ---
     paras = _maybe_rechunk_single_blob_paras(paras)
 
-    # --- harvest mode shortcut ---
+    # --- harvest mode shortcut (explicitly NOT our focus, but preserve behavior) ---
     if bool(getattr(run_cfg, "harvest_mode", False)):
         return run_harvest_then_reason_on_one_doc(doc_id, paras, atom, run_cfg, llm_cfg)
+
+    # -----------------------------
+    # DEBUG LOGGING CONFIG (NORMAL MODE ONLY)
+    # -----------------------------
+    debug = bool(getattr(run_cfg, "debug", False))
+    debug_dir = Path("/home/hello/Projects/Statements/code/debug")
+    if debug:
+        debug_dir.mkdir(parents=True, exist_ok=True)
+
+    def _safe_slug(s: str, max_len: int = 120) -> str:
+        s = (s or "").strip()
+        s = re.sub(r"[^A-Za-z0-9._-]+", "_", s)
+        return s[:max_len] if len(s) > max_len else s
+
+    def _dump_debug_iter(
+        *,
+        iter_i: int,
+        stage: str,
+        prompt: Optional[str],
+        evidence_pack: Dict[str, Any],
+        verdict_obj: Optional[Verdict],
+        anchors_ok: Optional[bool],
+        anchors_bad: Optional[List[Any]],
+        repaired_n: Optional[int],
+        temp_i: Optional[float],
+    ) -> None:
+        """
+        Writes prompt/evidence/verdict for forensic reproduction.
+        Adds an explicit 'x_classification_basis' block to make clear
+        the output is interpreted w.r.t. the current X atom.
+        Overwrites deterministically on rerun (user requirement).
+        """
+        if not debug:
+            return
+
+        atom_id = getattr(atom, "atom_id", "") or "UNKNOWN_ATOM"
+        doc_slug = _safe_slug(doc_id)
+        atom_slug = _safe_slug(atom_id)
+        base = f"{doc_slug}__{atom_slug}__iter{iter_i:02d}__{stage}"
+
+        # 1) Prompt
+        if prompt is not None:
+            (debug_dir / f"{base}__prompt.txt").write_text(prompt, encoding="utf-8")
+
+        # 2) Evidence pack (exact input to verifier_prompt)
+        (debug_dir / f"{base}__evidence_pack.json").write_text(
+            json.dumps(evidence_pack, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        # 3) Verdict (post-enforce + post-semantic-repair)
+        if verdict_obj is not None:
+            vdict = verdict_obj.to_dict() if hasattr(verdict_obj, "to_dict") else dict(verdict_obj)  # type: ignore
+        else:
+            vdict = None
+
+        x_basis = {
+            "target_atom_id": atom_id,
+            "matched_X": list((getattr(verdict_obj, "matched_X", None) or []) if verdict_obj else []),
+            "relevant": bool(getattr(verdict_obj, "relevant", False)) if verdict_obj else None,
+            "use_mode": getattr(verdict_obj, "use_mode", None) if verdict_obj else None,
+            "precedent_score": getattr(verdict_obj, "precedent_score", None) if verdict_obj else None,
+            "confidence": getattr(verdict_obj, "confidence", None) if verdict_obj else None,
+            "note": getattr(verdict_obj, "note", None) if verdict_obj else None,
+        }
+
+        verdict_payload = {
+            "x_classification_basis": x_basis,  # <-- explicit: classified with reference to this X / atom_id
+            "verdict": vdict,
+            "meta": {
+                "doc_id": doc_id,
+                "atom_id": atom_id,
+                "iter": iter_i,
+                "stage": stage,
+                "llm_temperature": temp_i,
+                "semantic_repaired_anchors": repaired_n,
+            },
+        }
+
+        (debug_dir / f"{base}__verdict.json").write_text(
+            json.dumps(verdict_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        # 4) Anchor validation outcome
+        anchor_payload = {
+            "doc_id": doc_id,
+            "atom_id": atom_id,
+            "iter": iter_i,
+            "stage": stage,
+            "anchors_ok": anchors_ok,
+            "anchors_bad": anchors_bad[:20] if isinstance(anchors_bad, list) else anchors_bad,
+        }
+        (debug_dir / f"{base}__anchor_check.json").write_text(
+            json.dumps(anchor_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     # -----------------------------
     # SEMANTIC MEMORY (snap-to-verbatim)
@@ -672,14 +774,11 @@ def run_agent_on_one_doc(
         else:
             x = (i - 1) / float(max_iters - 1)  # 0..1
             if curve == "exp":
-                # smooth easing toward end: x' = 1 - (1-x)^k
                 x2 = 1.0 - ((1.0 - x) ** max(0.1, kexp))
                 t = t0 + (t1 - t0) * x2
             else:
-                # linear
                 t = t0 + (t1 - t0) * x
 
-        # clamp to sane range
         if t < 0.0:
             t = 0.0
         if cap > 0.0 and t > cap:
@@ -719,13 +818,23 @@ def run_agent_on_one_doc(
         if atom.atom_id not in prompt:
             print(f"[moltie.loop] iter={i} WARN atom_id not found in prompt prompt_hash={_h(prompt)}")
 
-        # -----------------------------
-        # NEW: per-iteration cfg (temp schedule)
-        # -----------------------------
+        # per-iteration cfg (temp schedule)
         temp_i = _iter_temperature(i)
         llm_cfg_i = replace(llm_cfg, temperature=temp_i)
 
-        # ✅ FIX: pass metadata as args (not in prompt)
+        # Dump prompt + evidence BEFORE calling LLM (repro even if LLM crashes)
+        _dump_debug_iter(
+            iter_i=i,
+            stage="pre_llm",
+            prompt=prompt,
+            evidence_pack=evidence_pack,
+            verdict_obj=None,
+            anchors_ok=None,
+            anchors_bad=None,
+            repaired_n=None,
+            temp_i=temp_i,
+        )
+
         verdict = verify_with_ollama(
             prompt,
             llm_cfg_i,
@@ -735,17 +844,32 @@ def run_agent_on_one_doc(
         verdict = enforce_matched_x(verdict, atom_id=atom.atom_id, allowed_x=getattr(atom, "x_tests", []) or [])
 
         if not getattr(verdict, "atom_id", "").strip():
-            print(f"[moltie.loop] iter={i} BAD_VERDICT missing atom_id prompt_hash={_h(prompt)} verdict={verdict.to_dict()}")
+            # Keep this loud; a missing atom_id makes everything meaningless.
+            print(
+                f"[moltie.loop] iter={i} BAD_VERDICT missing atom_id "
+                f"prompt_hash={_h(prompt)} verdict={verdict.to_dict()}"
+            )
             raise RuntimeError("LLM returned Verdict without atom_id")
 
-        # -----------------------------
         # SEMANTIC REPAIR (snap-to-verbatim) BEFORE anchor validation
-        # -----------------------------
         para_map = {p["para_id"]: p["text"] for p in evidence_pack["paras"]}
         allowed_para_ids = set(para_map.keys())
         verdict, repaired_n = sem.repair_verdict_anchors(verdict, allowed_para_ids=allowed_para_ids)
 
         ok, bad = _anchors_valid(verdict, para_map)
+
+        # Dump verdict AFTER repair + anchor validation
+        _dump_debug_iter(
+            iter_i=i,
+            stage="post_llm",
+            prompt=None,  # already dumped
+            evidence_pack=evidence_pack,
+            verdict_obj=verdict,
+            anchors_ok=ok,
+            anchors_bad=bad,
+            repaired_n=repaired_n,
+            temp_i=temp_i,
+        )
 
         if not ok:
             trace.append(
@@ -830,7 +954,6 @@ def run_agent_on_one_doc(
 
         # PLATEAU gate
         if plateau >= plateau_p:
-            # keep scanning until we’ve covered the doc (window-level memory)
             if len(visited_windows) < est_total_windows:
                 print(
                     f"[moltie.loop] PLATEAU iter={i} but continuing for coverage "
@@ -848,18 +971,13 @@ def run_agent_on_one_doc(
                 f"best_quality={best_quality} best_score={best_score} visited_windows={len(visited_windows)}"
             )
 
-            # -------------------------------------------------
-            # GOLD-ADJACENT SIGNAL (strictly advisory layer)
-            # -------------------------------------------------
             gold_adjacent = False
             gold_reason = None
-
             if best is not None:
                 ps = _nn_int(getattr(best, "precedent_score", 0))
                 conf = _nn_int(getattr(best, "confidence", 0))
                 anchors_len_best = len(getattr(best, "anchors", []) or [])
                 rel = bool(getattr(best, "relevant", False))
-
                 if (not rel) and ps >= 75 and conf >= 80 and anchors_len_best >= 2:
                     gold_adjacent = True
                     gold_reason = "strong_doctrinal_signal_without_atom_alignment"
@@ -893,9 +1011,7 @@ def run_agent_on_one_doc(
         if anchors_len > 0:
             atom = refine_query(atom, verdict, i).atom
 
-    # --------------------------
-    # EXHAUSTED exit + GOLD flag
-    # --------------------------
+    # EXHAUSTED exit
     print(
         f"[moltie.loop] EXIT exhausted iters={getattr(run_cfg,'max_iters',None)} "
         f"best_quality={best_quality} best_score={best_score}"
@@ -903,13 +1019,11 @@ def run_agent_on_one_doc(
 
     gold_adjacent = False
     gold_reason = None
-
     if best is not None:
         ps = _nn_int(getattr(best, "precedent_score", 0))
         conf = _nn_int(getattr(best, "confidence", 0))
         anchors_len_best = len(getattr(best, "anchors", []) or [])
         rel = bool(getattr(best, "relevant", False))
-
         if (not rel) and ps >= 75 and conf >= 80 and anchors_len_best >= 2:
             gold_adjacent = True
             gold_reason = "strong_doctrinal_signal_without_atom_alignment"

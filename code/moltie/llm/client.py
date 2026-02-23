@@ -452,22 +452,16 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
 
     def _map_party(x: Any) -> str:
         s = _clean_str(x).lower()
-
-        # normalize blanks / "none"
-        if s in {"", "none", "null", "unknown"}:
-            return "unclear"
-
-        # claimant-ish
-        if s in {"claimant", "employee", "appellant", "worker", "plaintiff", "petitioner"}:
+        if s in {"claimant", "respondent", "mixed", "unclear"}:
+            return s
+        if s in {"employee", "plaintiff", "appellant", "claimant-side"}:
             return "claimant"
-
-        # respondent-ish
-        if s in {"respondent", "employer", "company", "defendant"}:
+        if s in {"employer", "defendant", "respondent-side"}:
             return "respondent"
-
-        if s == "mixed":
+        if s in {"both"}:
             return "mixed"
-
+        if s in {"none", "null", ""}:
+            return "unclear"
         return "unclear"
 
     def _map_appeal_outcome(x: Any) -> str:
@@ -610,6 +604,14 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
         obj["relevant"] = False
         obj["use_mode"] = "contrast"
         obj["precedent_score"] = 0
+
+    # ---------- contract guard ----------
+    # The VerdictValidator enforces: if relevant=False then anchors must be [].
+    # We sometimes downgrade relevant -> False (e.g., precedent_score <= 0) AFTER parsing anchors.
+    # Ensure we don't leave anchors behind in those downgrade paths.
+    if not obj.get("relevant", False):
+        obj["anchors"] = []
+        obj["matched_X"] = []
 
     # If not relevant, cap score
     if not obj["relevant"]:
