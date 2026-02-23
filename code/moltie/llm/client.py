@@ -144,6 +144,7 @@ class LLMClientConfig:
     temperature: float = 0.0
     num_predict: int = 1200  # smaller helps reduce rambly JSON breakage
     max_retries: int = 2
+    debug: bool = False
 
 
 def _escape_raw_newlines_in_json_strings(raw: str) -> str:
@@ -639,6 +640,15 @@ def verify_with_ollama(
     last_err: Optional[Exception] = None
     last_txt: str = ""
 
+    # -----------------------------
+    # PRINT GATE (single source of truth)
+    # -----------------------------
+    debug = bool(getattr(cfg, "debug", False))
+
+    def dprint(*args, **kwargs) -> None:
+        if debug:
+            print(*args, **kwargs)
+
     # Content-only allowed keys (what the model is allowed to return)
     _ALLOWED_MODEL_KEYS = {
         "relevant",
@@ -736,15 +746,12 @@ def verify_with_ollama(
             txt = _ollama_generate(prompt_to_send, cfg, force_json=True)
             last_txt = txt
 
-            try:
-                print("\n[moltie.client] ===== Attempt A =====")
-                print("[moltie.client] attempt:", attempt)
-                print("[moltie.client] prompt_hash:", _h(prompt_to_send))
-                print("[moltie.client] raw_len:", len(txt or ""))
-                print("[moltie.client] raw_head:\n", (txt or "")[:800])
-                print("[moltie.client] raw_tail:\n", (txt or "")[-400:])
-            except Exception:
-                pass
+            dprint("\n[moltie.client] ===== Attempt A =====")
+            dprint("[moltie.client] attempt:", attempt)
+            dprint("[moltie.client] prompt_hash:", _h(prompt_to_send))
+            dprint("[moltie.client] raw_len:", len(txt or ""))
+            dprint("[moltie.client] raw_head:\n", (txt or "")[:800])
+            dprint("[moltie.client] raw_tail:\n", (txt or "")[-400:])
 
             if len(txt) > _MAX_RAW_OUTPUT_CHARS:
                 raise ValueError("Model output too long (likely paragraph dump).")
@@ -772,10 +779,7 @@ def verify_with_ollama(
             return Verdict.from_dict(enriched)
 
         except Exception as e:
-            try:
-                print("[moltie.client] Attempt A exception:", repr(e))
-            except Exception:
-                pass
+            dprint("[moltie.client] Attempt A exception:", repr(e))
             last_err = e
             prompt_to_send = _prepend_correction(base_prompt, why=str(e))
 
@@ -796,15 +800,12 @@ def verify_with_ollama(
 
             txt2 = _ollama_generate(repair_prompt, cfg, force_json=True)
 
-            try:
-                print("\n[moltie.client] ===== Attempt B (REPAIR) =====")
-                print("[moltie.client] attempt:", attempt)
-                print("[moltie.client] repair_prompt_hash:", _h(repair_prompt))
-                print("[moltie.client] raw2_len:", len(txt2 or ""))
-                print("[moltie.client] raw2_head:\n", (txt2 or "")[:800])
-                print("[moltie.client] raw2_tail:\n", (txt2 or "")[-400:])
-            except Exception:
-                pass
+            dprint("\n[moltie.client] ===== Attempt B (REPAIR) =====")
+            dprint("[moltie.client] attempt:", attempt)
+            dprint("[moltie.client] repair_prompt_hash:", _h(repair_prompt))
+            dprint("[moltie.client] raw2_len:", len(txt2 or ""))
+            dprint("[moltie.client] raw2_head:\n", (txt2 or "")[:800])
+            dprint("[moltie.client] raw2_tail:\n", (txt2 or "")[-400:])
 
             if len(txt2) > _MAX_RAW_OUTPUT_CHARS:
                 raise ValueError("Repair output too long (likely paragraph dump).")
@@ -830,10 +831,7 @@ def verify_with_ollama(
             return Verdict.from_dict(enriched2)
 
         except Exception as e2:
-            try:
-                print("[moltie.client] Attempt B exception:", repr(e2))
-            except Exception:
-                pass
+            dprint("[moltie.client] Attempt B exception:", repr(e2))
             last_err = e2
             prompt_to_send = _prepend_correction(base_prompt, why=str(e2))
             continue

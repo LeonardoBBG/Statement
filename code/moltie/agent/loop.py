@@ -336,15 +336,19 @@ def run_harvest_then_reason_on_one_doc(
     debug = bool(getattr(run_cfg, "debug", False))
     # -----------------------------
 
+    def dprint(*args, **kwargs) -> None:
+        if debug:
+            print(*args, **kwargs)
+
     paras = _maybe_rechunk_single_blob_paras(paras)
 
-    print(f"[moltie.debug] raw_paras_before_filter={len(paras)}")
+    dprint(f"[moltie.debug] raw_paras_before_filter={len(paras)}")
     if paras:
-        print(f"[moltie.debug] raw_para0_len={len((paras[0].get('text') or ''))}")
+        dprint(f"[moltie.debug] raw_para0_len={len((paras[0].get('text') or ''))}")
 
     # Use SAME debug variable
     paras = _filter_front_matter(paras, min_keep=4, debug=debug)
-    print(f"[moltie.debug] paras_after_front_matter_filter={len(paras)}")
+    dprint(f"[moltie.debug] paras_after_front_matter_filter={len(paras)}")
 
     # -----------------------------
     # SEMANTIC MEMORY (snap-to-verbatim)
@@ -356,8 +360,8 @@ def run_harvest_then_reason_on_one_doc(
     trace: List[Dict[str, Any]] = []
 
     if debug:
-        print(f"[moltie.loop] HARVEST start doc_id={doc_id!r} atom_id={atom.atom_id!r} n_paras={len(paras)}")
-        print("[moltie.debug] raw paras:", len(paras), "sample lens:", [len((p.get("text") or "")) for p in paras[:3]])
+        dprint(f"[moltie.loop] HARVEST start doc_id={doc_id!r} atom_id={atom.atom_id!r} n_paras={len(paras)}")
+        dprint("[moltie.debug] raw paras:", len(paras), "sample lens:", [len((p.get("text") or "")) for p in paras[:3]])
 
     window_size = max(1, int(getattr(run_cfg, "window_size", 24)))
     stride = max(1, int(getattr(run_cfg, "stride", 12)))
@@ -401,7 +405,7 @@ def run_harvest_then_reason_on_one_doc(
 
     if debug:
         total_chars = sum(len(p.get("text") or "") for p in paras)
-        print(
+        dprint(
             f"[moltie.debug] doc totals: n_paras={n} total_chars={total_chars} "
             f"window_size={window_size} stride={stride} windows={total_windows}"
         )
@@ -434,21 +438,21 @@ def run_harvest_then_reason_on_one_doc(
 
         if debug:
             sent = evidence_pack["paras"] or []
-            print("\n[moltie.forensic] ===== ABOUT TO CALL LLM =====")
-            print("[moltie.forensic] win:", f"{start}:{end}", "doc_id:", doc_id, "atom_id:", atom.atom_id, "x_tests:", getattr(atom, "x_tests", None))
-            print("[moltie.forensic] total_paras_in_doc:", len(paras), "paras_sent:", len(sent))
-            print("[moltie.forensic] retrieval_method:", (evidence_pack.get("retrieval") or {}).get("method"))
+            dprint("\n[moltie.forensic] ===== ABOUT TO CALL LLM =====")
+            dprint("[moltie.forensic] win:", f"{start}:{end}", "doc_id:", doc_id, "atom_id:", atom.atom_id, "x_tests:", getattr(atom, "x_tests", None))
+            dprint("[moltie.forensic] total_paras_in_doc:", len(paras), "paras_sent:", len(sent))
+            dprint("[moltie.forensic] retrieval_method:", (evidence_pack.get("retrieval") or {}).get("method"))
             ids = [p.get("para_id") for p in sent[:12]]
-            print("[moltie.forensic] sent_para_ids_head:", ids)
+            dprint("[moltie.forensic] sent_para_ids_head:", ids)
             for p in sent[:3]:
                 pid = p.get("para_id")
                 txt = p.get("text") or ""
-                print(f"[moltie.forensic] para {pid} len={len(txt)} preview={_prev(txt, 240)}")
-            print("[moltie.forensic] prompt_chars:", len(prompt))
-            print("[moltie.forensic] prompt_head_350:\n", prompt[:350])
+                dprint(f"[moltie.forensic] para {pid} len={len(txt)} preview={_prev(txt, 240)}")
+            dprint("[moltie.forensic] prompt_chars:", len(prompt))
+            dprint("[moltie.forensic] prompt_head_350:\n", prompt[:350])
             missing_in_prompt = [pid for pid in ids if pid and (pid not in prompt)]
-            print("[moltie.forensic] sent_para_ids_missing_in_prompt_head:", missing_in_prompt[:8])
-            print("[moltie.forensic] ===============================\n")
+            dprint("[moltie.forensic] sent_para_ids_missing_in_prompt_head:", missing_in_prompt[:8])
+            dprint("[moltie.forensic] ===============================\n")
 
         # ✅ FIX: pass metadata as args (not in prompt)
         verdict = verify_with_ollama(
@@ -474,7 +478,7 @@ def run_harvest_then_reason_on_one_doc(
 
         if debug:
             n_anchors = len(getattr(verdict, "anchors", None) or [])
-            print(
+            dprint(
                 f"[moltie.debug] win={start}:{end} "
                 f"relevant={getattr(verdict,'relevant',None)} "
                 f"precedent_score={getattr(verdict,'precedent_score',None)} "
@@ -513,7 +517,7 @@ def run_harvest_then_reason_on_one_doc(
 
     if not harvested_verdicts or not harvested_para_ids:
         if debug:
-            print(
+            dprint(
                 f"[moltie.loop] HARVEST EXIT no_signal "
                 f"harvested_verdicts={len(harvested_verdicts)} "
                 f"harvested_para_ids={len(harvested_para_ids)}"
@@ -564,7 +568,7 @@ def run_harvest_then_reason_on_one_doc(
     ok2, bad2 = _anchors_valid(verdict2, mem_para_map)
 
     if debug:
-        print(
+        dprint(
             f"[moltie.debug] PASS-2 verdict: relevant={getattr(verdict2,'relevant',None)} "
             f"precedent_score={getattr(verdict2,'precedent_score',None)} "
             f"confidence={getattr(verdict2,'confidence',None)} "
@@ -617,6 +621,11 @@ def run_agent_on_one_doc(
     # DEBUG LOGGING CONFIG (NORMAL MODE ONLY)
     # -----------------------------
     debug = bool(getattr(run_cfg, "debug", False))
+
+    def dprint(*args, **kwargs) -> None:
+        if debug:
+            print(*args, **kwargs)
+
     debug_dir = Path("/home/hello/Projects/Statements/code/debug")
     if debug:
         debug_dir.mkdir(parents=True, exist_ok=True)
@@ -726,7 +735,7 @@ def run_agent_on_one_doc(
     visited_windows: Set[Tuple[int, int]] = set()
     visited_starts: Set[int] = set()
 
-    print(f"[moltie.loop] start doc_id={doc_id!r} atom_id={atom.atom_id!r} n_paras={len(paras)}")
+    dprint(f"[moltie.loop] start doc_id={doc_id!r} atom_id={atom.atom_id!r} n_paras={len(paras)}")
 
     window_size = int(getattr(run_cfg, "window_size", 24))
     stride = int(getattr(run_cfg, "stride", 12))
@@ -801,7 +810,7 @@ def run_agent_on_one_doc(
         )
 
         if len(rr.paras or []) == 0:
-            print(f"[moltie.loop] iter={i} WARN retrieval returned 0 paras meta={rr.retrieval!r}")
+            dprint(f"[moltie.loop] iter={i} WARN retrieval returned 0 paras meta={rr.retrieval!r}")
 
         picked = rr.retrieval.get("picked_windows") or []
         for w in picked:
@@ -816,7 +825,7 @@ def run_agent_on_one_doc(
         prompt = build_verifier_prompt(atom=atom, evidence_pack=evidence_pack, cfg=run_cfg)
 
         if atom.atom_id not in prompt:
-            print(f"[moltie.loop] iter={i} WARN atom_id not found in prompt prompt_hash={_h(prompt)}")
+            dprint(f"[moltie.loop] iter={i} WARN atom_id not found in prompt prompt_hash={_h(prompt)}")
 
         # per-iteration cfg (temp schedule)
         temp_i = _iter_temperature(i)
@@ -845,7 +854,7 @@ def run_agent_on_one_doc(
 
         if not getattr(verdict, "atom_id", "").strip():
             # Keep this loud; a missing atom_id makes everything meaningless.
-            print(
+            dprint(
                 f"[moltie.loop] iter={i} BAD_VERDICT missing atom_id "
                 f"prompt_hash={_h(prompt)} verdict={verdict.to_dict()}"
             )
@@ -884,7 +893,7 @@ def run_agent_on_one_doc(
                     "llm_temperature": temp_i,
                 }
             )
-            print(f"[moltie.loop] INVALID_ANCHORS iter={i} repaired={repaired_n} bad={bad[:3]} -> continuing")
+            dprint(f"[moltie.loop] INVALID_ANCHORS iter={i} repaired={repaired_n} bad={bad[:3]} -> continuing")
             plateau += 1
             continue
 
@@ -906,7 +915,7 @@ def run_agent_on_one_doc(
         )
 
         q = _compute_quality(verdict)
-        print(
+        dprint(
             f"[moltie.loop] iter={i} rel={getattr(verdict,'relevant',None)} "
             f"score={getattr(verdict,'precedent_score',None)} conf={getattr(verdict,'confidence',None)} "
             f"anchors={len(getattr(verdict,'anchors',[]) or [])} quality={q} temp={temp_i}"
@@ -934,7 +943,7 @@ def run_agent_on_one_doc(
             and conf_v >= thresh_conf
             and anchors_len >= anchors_required
         ):
-            print(
+            dprint(
                 f"[moltie.loop] ACCEPT iter={i} score={getattr(verdict,'precedent_score',None)} "
                 f"conf={getattr(verdict,'confidence',None)} anchors={anchors_len}"
             )
@@ -955,7 +964,7 @@ def run_agent_on_one_doc(
         # PLATEAU gate
         if plateau >= plateau_p:
             if len(visited_windows) < est_total_windows:
-                print(
+                dprint(
                     f"[moltie.loop] PLATEAU iter={i} but continuing for coverage "
                     f"(plateau={plateau} visited_windows={len(visited_windows)}/{est_total_windows})"
                 )
@@ -966,7 +975,7 @@ def run_agent_on_one_doc(
                     atom = refine_query(atom, verdict, i).atom
                 continue
 
-            print(
+            dprint(
                 f"[moltie.loop] EXIT plateau iter={i} plateau={plateau} "
                 f"best_quality={best_quality} best_score={best_score} visited_windows={len(visited_windows)}"
             )
@@ -1012,7 +1021,7 @@ def run_agent_on_one_doc(
             atom = refine_query(atom, verdict, i).atom
 
     # EXHAUSTED exit
-    print(
+    dprint(
         f"[moltie.loop] EXIT exhausted iters={getattr(run_cfg,'max_iters',None)} "
         f"best_quality={best_quality} best_score={best_score}"
     )
