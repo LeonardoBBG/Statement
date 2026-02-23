@@ -1024,9 +1024,18 @@ def run_agent_on_one_doc(
         conf = _nn_int(getattr(best, "confidence", 0))
         anchors_len_best = len(getattr(best, "anchors", []) or [])
         rel = bool(getattr(best, "relevant", False))
-        if (not rel) and ps >= 75 and conf >= 80 and anchors_len_best >= 2:
+
+        # Intended behaviour:
+        # Any anchored evidence that did not meet the ACCEPT gate
+        # should be treated as gold_adjacent.
+        if (not rel) and anchors_len_best > 0:
             gold_adjacent = True
-            gold_reason = "strong_doctrinal_signal_without_atom_alignment"
+
+            # Stronger doctrinal signal
+            if ps >= 75 and conf >= 80 and anchors_len_best >= 2:
+                gold_reason = "strong_doctrinal_signal_without_atom_alignment"
+            else:
+                gold_reason = "anchored_adjacent_signal"
 
     nx = NegativeExit.from_best(
         atom_id=atom.atom_id,
