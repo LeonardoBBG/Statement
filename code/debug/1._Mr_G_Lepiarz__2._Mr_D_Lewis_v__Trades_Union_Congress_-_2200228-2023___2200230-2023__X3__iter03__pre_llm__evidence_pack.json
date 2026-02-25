@@ -1,0 +1,50 @@
+{
+  "doc_id": "1._Mr_G_Lepiarz__2._Mr_D_Lewis_v__Trades_Union_Congress_-_2200228-2023___2200230-2023",
+  "doc_meta": {},
+  "paras": [
+    {
+      "para_id": "p00044",
+      "text": "on behalf of the TUC. I find it implausible that such an invoice was sent without your knowledge. This reading of events also accords with the witness statements provided by Jeanette Dye to the TUC. The witness statement from Jeanette Dye that you submitted on 10 October 2022, does not contradict this reading of events, but states that Jeanette Dye did not make a complaint against you or DL. This point is not material, as the findings of the disciplinary hearing panel were not predicated on a complaint from Jeanette Dye but the panel’s assessment of your behaviours and actions which they believed constituted gross misconduct. I further support the panel’s findings regarding the tone of your email communications with Jeanette Dye, and believe this behaviour falls short of the conduct expected of TUC staff. Case Numbers: 2200228/2023 and 2200230/2023 30 I would add further, that I believe your decision to launch – along with Darren Lewis – a public ‘campaign’ relating to your disciplinary process (http://justicefordarrenandgreg.org/)  while that process is still ongoing, is at best ill-judged, and at worst has the potential to cause further reputational damage to the TUC. In my view this reinforces the disciplinary panel’s decision that your conduct has brought the TUC into disrepute. 129. There were similar statements in the letter to Mr Lewis, including a statement that Mr Lewis’ participation in a public campaign had reinforced Mr Nowak’s view that Mr Lewis’ conduct had brought the TUC into disrepute. 130. In oral evidence Mr Nowak said: My intention was not to return on every aspect – I considered unfairness, any new evidence, was the outcome unreasonable.  They raised new areas in the hearing which were  not in"
+    },
+    {
+      "para_id": "p00048",
+      "text": "142. The Acas Guide at page 22 provides: Ensure that the employee and their representative or accompanying person are allowed to see any statements made by witnesses and to question them. 143. In Louis v Coventry Hood [1990] ICR 54, the EAT stated the following It does seem to me that it must be a very rare case indeed for the procedures to be fair where statements which have been given in writing by witnesses and upon which in essence the employer is going to rely almost entirely - and that is this case - that an employee should not have a sight of them or that he should not be told very clearly exactly what is in them or possibly have them read to him. One understands that there may be delicate situations…. where the essence of the case, the main substance of the case is contained in two statements which this employee asks to see and which he is refused without reason and upon which substantial reliance is placed, then prima facie to me it seems to be unfair. It may be the reaction of a lawyer; I trust it is the reaction of anyone. 144. In A v B  [2003] IRLR 405, the EAT considered the standard of investigation required in serious cases (in that case where the charges were of criminal conduct): Serious allegations of criminal misbehaviour, at least where disputed, must always be the subject of the most careful investigation, always bearing in mind that the investigation is usually being conducted by laymen and not lawyers. Of course, even in the most serious of cases, it is unrealistic and quite inappropriate to require the safeguards of a criminal trial, but a careful and conscientious investigation of the facts is necessary and the investigator charged with carrying out the inquiries should focus no less on any potential"
+    },
+    {
+      "para_id": "p00080",
+      "text": "the alleged provision of the website services for profit and  under the auspices of the TUC. In terms of blameworthiness, we considered the fact that these were emails sent on one date at a time when the claimants had reason to be agitated. The tone was unpleasant but there were no threats or abuse. 244. We considered that there was a modest difference in culpability as between the two claimants and accordingly made the following reductions to compensation: a. For Mr Lepiarz: 15%; b. For Mr Lewis: 20%. Polkey reduction 245. The claimants submitted that there were simply too many procedural and other failings for the Tribunal to conclude that, without all of those failings, the claimants would or might nonetheless have been fairly dismissed. 246. There some were areas in particular where it seemed to us very difficult to speculate as to what the results of a proper investigation might have been. We have no good sense of what Ms Dye’s evidence would ultimately have looked like that had proper enquiries been made with her. We cannot know what other officers of Newham Trades Council might have said had they been spoken to.  Had the charges been put properly and had the claimants had a proper opportunity to see and challenge Ms Dye’s evidence, the hearings may have unfolded very differently. Some of the additional charges were so poorly evidenced (eg as to breach of the furlough policy), we simply have no idea what a proper investigation into those allegations might have led to. 247. On the question of whether Mr Lepiarz was able to demonstrate that Ms Dye had been charged less than the costs to him of setting up and maintaining the website, the respondent did so little to test the evidence it appears to have rejected, we simply cannot properly speculate as to what a fair"
+    },
+    {
+      "para_id": "p00082",
+      "text": "b. Also in breach of paragraph 9, a failure to provide copies of written evidence, ie the statements of Ms Dye c. A breach of paragraph 27 in that the manager who dealt with the appeal was not impartial. 251. We have already found that these were significant failures with significant effects. They were unreasonable failures on any view but the more so when considering that this was an employer which because of its nature should have had a much better grasp of the Acas Code. 252. Looking at the guidance in Lawless, we concluded that: - Whilst there were very large areas of compliance with the Code, the failures were significant; - The failures appear largely to have been  deliberate in the sense that  that they were done with an awareness of what the expected standard was – for example the non provision of  Ms Dye’s statements; - We were not able to identify mitigating features. This was a sizeable organisation with a dedicated HR function which should have known better. 253.  Bearing in mind that we should look at the overall size of the award when deciding to order an uplift, we concluded that it would be appropriate for us to hear further submissions on the size of the uplift at the remedy hearing. Wrongful dismissal Case Numbers: 2200228/2023 and 2200230/2023 55 Issue: Were the Claimants guilty of gross misconduct? Were the Claimants actions sufficiently serious that the Respondent was entitled to dismiss without notice? 254. We reminded ourselves that the question for us was whether we found on the balance of probabilities that the claimants were guilty of conduct which amounted to a repudiatory breach of contract 255. We have already set out above the difficulties created by the inadequacy of"
+    }
+  ],
+  "retrieval": {
+    "method": "sliding_window",
+    "score": 4.0,
+    "matched_paras": 15,
+    "k": 12,
+    "min_hits": 1,
+    "window_size": 12,
+    "stride": 6,
+    "top_windows": 3,
+    "est_total_windows": 14,
+    "picked_windows": [
+      {
+        "start": 36,
+        "end": 48,
+        "score": 2
+      },
+      {
+        "start": 42,
+        "end": 54,
+        "score": 2
+      },
+      {
+        "start": 78,
+        "end": 84,
+        "score": 2
+      }
+    ]
+  }
+}
