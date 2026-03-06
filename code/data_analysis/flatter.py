@@ -245,63 +245,297 @@ def flatten_moltie_jsonl(
 
 def pdf_hit_frequency_view(df_flat: pd.DataFrame) -> pd.DataFrame:
     """
-    Create a simple PDF-level frequency view from the flat DF:
+    Create a PDF-level relevant-only summary view from the flat DF:
     - one row per doc (doc_id + et_filename + et_path)
-    - counts total runs, relevant runs, non-relevant runs
-    - max/mean confidence and precedent_score
-    - max anchor_count
+    - uses ONLY rows where relevant == True
+    - counts relevant runs only
+    - computes confidence / precedent metrics from relevant rows only
+    - pipes together semantic fields across relevant rows:
+        matched_needles, use_mode, proposition_winner,
+        appeal_outcome, successful_party, note
+    - adds a normalized composite strength metric in [0, 1]:
+        precedent_strength
+
+    Notes
+    -----
+    - This is a curated precedent-summary table, not an all-activity table.
+    - Non-relevant rows are intentionally excluded from this view.
+    - Numeric summary fields are rounded to 0 decimals, except precedent_strength.
     """
+
     if df_flat is None or df_flat.empty:
         return pd.DataFrame(
             columns=[
                 "doc_id", "et_filename", "et_path",
-                "n_runs", "n_relevant", "n_nonrelevant",
-                "relevant_rate",
+                "n_relevant_runs",
                 "max_anchor_count",
                 "max_confidence", "mean_confidence",
                 "max_precedent_score", "mean_precedent_score",
+                "precedent_strength",
+                "matched_needles_pdf",
+                "use_mode_pdf",
+                "proposition_winner_pdf",
+                "appeal_outcome_pdf",
+                "successful_party_pdf",
+                "note_pdf",
             ]
         )
 
     df = df_flat.copy()
 
+    # -------------------------
     # Ensure doc columns exist
+    # -------------------------
     if "doc_id" not in df.columns:
-        df["doc_id"] = df.get("et_filename")
+        if "et_filename" in df.columns:
+            df["doc_id"] = df["et_filename"]
+        else:
+            df["doc_id"] = df.get("et_path").apply(lambda p: Path(p).name if p else None)
+
     if "et_filename" not in df.columns:
-        df["et_filename"] = df.get("et_path").apply(lambda p: Path(p).name if p else None)
+        if "et_path" in df.columns:
+            df["et_filename"] = df["et_path"].apply(lambda p: Path(p).name if p else None)
+        else:
+            df["et_filename"] = None
+
     if "et_path" not in df.columns:
         df["et_path"] = None
 
-    # relevant normalization: treat True strictly as hit
-    is_rel = df["relevant"] == True if "relevant" in df.columns else False
-    df["_is_relevant"] = is_rel
+    # -------------------------
+    # Relevant-only filter
+    # -------------------------
+    if "relevant" not in df.columns:
+        return pd.DataFrame(
+            columns=[
+                "doc_id", "et_filename", "et_path",
+                "n_relevant_runs",
+                "max_anchor_count",
+                "max_confidence", "mean_confidence",
+                "max_precedent_score", "mean_precedent_score",
+                "precedent_strength",
+                "matched_needles_pdf",
+                "use_mode_pdf",
+                "proposition_winner_pdf",
+                "appeal_outcome_pdf",
+                "successful_party_pdf",
+                "note_pdf",
+            ]
+        )
 
+    df = df[df["relevant"] == True].copy()
+
+    if df.empty:
+        return pd.DataFrame(
+            columns=[
+                "doc_id", "et_filename", "et_path",
+                "n_relevant_runs",
+                "max_anchor_count",
+                "max_confidence", "mean_confidence",
+                "max_precedent_score", "mean_precedent_score",
+                "precedent_strength",
+                "matched_needles_pdf",
+                "use_mode_pdf",
+                "proposition_winner_pdf",
+                "appeal_outcome_pdf",
+                "successful_party_pdf",
+                "note_pdf",
+            ]
+        )
+
+    # -------------------------
+    # Helpers
+    # -------------------------
+    def _is_nullish(x):
+        if x is None:
+            return True
+        try:
+            return pd.isna(x)
+        except Exception:
+            return False
+
+    def _pipe_unique_series(series: pd.Series) -> str | None:
+        """
+        Dedup + join scalar values from a series, preserving first appearance order.
+        """
+        seen = set()
+        out = []
+
+        for val in series:
+            if _is_nullish(val):
+                continue
+
+            s = str(val).strip()
+            if not s:
+                continue
+
+            if s not in seen:
+                seen.add(s)
+                out.append(s)
+
+        return " | ".join(out) if out else None
+
+    def _pipe_unique_listlike(series: pd.Series) -> str | None:
+        """
+        Flatten list-like cells (e.g. matched_needles), dedup, preserve first appearance order.
+        Falls back to scalar handling if a cell is not list-like.
+        """
+        seen = set()
+        out = []
+
+        for val in series:
+            if _is_nullish(val):
+                continue
+
+            if isinstance(val, list):
+                items = val
+            else:
+                items = [val]
+
+            for item in items:
+                if _is_nullish(item):
+                    continue
+
+                s = str(item).strip()
+                if not s:
+                    continue
+
+                if s not in seen:
+                    seen.add(s)
+                    out.append(s)
+
+        return " | ".join(out) if out else None
+
+    # -------------------------
+    # Numeric safety
+    # -------------------------
+    for c in ["anchor_count", "confidence", "precedent_score"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    # -------------------------
+    # Group + aggregate
+    # -------------------------
     grp_cols = ["doc_id", "et_filename", "et_path"]
     g = df.groupby(grp_cols, dropna=False)
 
     out = g.agg(
-        n_runs=("doc_id", "size"),
-        n_relevant=("_is_relevant", "sum"),
-        max_anchor_count=("anchor_count", "max") if "anchor_count" in df.columns else ("_is_relevant", "sum"),
-        max_confidence=("confidence", "max") if "confidence" in df.columns else ("_is_relevant", "sum"),
-        mean_confidence=("confidence", "mean") if "confidence" in df.columns else ("_is_relevant", "sum"),
-        max_precedent_score=("precedent_score", "max") if "precedent_score" in df.columns else ("_is_relevant", "sum"),
-        mean_precedent_score=("precedent_score", "mean") if "precedent_score" in df.columns else ("_is_relevant", "sum"),
+        n_relevant_runs=("doc_id", "size"),
+        max_anchor_count=("anchor_count", "max") if "anchor_count" in df.columns else ("doc_id", "size"),
+        max_confidence=("confidence", "max") if "confidence" in df.columns else ("doc_id", "size"),
+        mean_confidence=("confidence", "mean") if "confidence" in df.columns else ("doc_id", "size"),
+        max_precedent_score=("precedent_score", "max") if "precedent_score" in df.columns else ("doc_id", "size"),
+        mean_precedent_score=("precedent_score", "mean") if "precedent_score" in df.columns else ("doc_id", "size"),
     ).reset_index()
 
-    out["n_nonrelevant"] = out["n_runs"] - out["n_relevant"]
-    out["relevant_rate"] = out["n_relevant"] / out["n_runs"]
+    # -------------------------
+    # Pipe semantic fields
+    # -------------------------
+    piped = g.apply(
+        lambda grp: pd.Series({
+            "matched_needles_pdf": _pipe_unique_listlike(grp["matched_needles"]) if "matched_needles" in grp.columns else None,
+            "use_mode_pdf": _pipe_unique_series(grp["use_mode"]) if "use_mode" in grp.columns else None,
+            "proposition_winner_pdf": _pipe_unique_series(grp["proposition_winner"]) if "proposition_winner" in grp.columns else None,
+            "appeal_outcome_pdf": _pipe_unique_series(grp["appeal_outcome"]) if "appeal_outcome" in grp.columns else None,
+            "successful_party_pdf": _pipe_unique_series(grp["successful_party"]) if "successful_party" in grp.columns else None,
+            "note_pdf": _pipe_unique_series(grp["note"]) if "note" in grp.columns else None,
+        })
+    ).reset_index()
 
-    # Sort: strongest/most useful PDFs first
+    out = out.merge(piped, on=grp_cols, how="left")
+
+    # -------------------------
+    # Normalized composite metric
+    # -------------------------
+    # Confidence / precedent are assumed to be on a 0-100 style scale.
+    # Counts are normalized relative to the max value in the current output.
+    runs_max = out["n_relevant_runs"].max() if "n_relevant_runs" in out.columns else None
+    anchors_max = out["max_anchor_count"].max() if "max_anchor_count" in out.columns else None
+
+    out["runs_norm"] = (
+        out["n_relevant_runs"] / runs_max
+        if runs_max and pd.notna(runs_max) and runs_max > 0
+        else 0.0
+    )
+
+    out["anchors_norm"] = (
+        out["max_anchor_count"] / anchors_max
+        if anchors_max and pd.notna(anchors_max) and anchors_max > 0
+        else 0.0
+    )
+
+    out["conf_norm"] = (
+        out["mean_confidence"].fillna(0) / 100.0
+        if "mean_confidence" in out.columns
+        else 0.0
+    ).clip(lower=0.0, upper=1.0)
+
+    out["precedent_norm"] = (
+        out["mean_precedent_score"].fillna(0) / 100.0
+        if "mean_precedent_score" in out.columns
+        else 0.0
+    ).clip(lower=0.0, upper=1.0)
+
+    out["precedent_strength"] = (
+        0.25 * out["runs_norm"] +
+        0.25 * out["anchors_norm"] +
+        0.25 * out["conf_norm"] +
+        0.25 * out["precedent_norm"]
+    ).round(4)
+
+    # -------------------------
+    # Round displayed numeric fields to 0 decimals
+    # -------------------------
+    round_cols = [
+        "n_relevant_runs",
+        "max_anchor_count",
+        "max_confidence",
+        "mean_confidence",
+        "max_precedent_score",
+        "mean_precedent_score",
+    ]
+    for c in round_cols:
+        if c in out.columns:
+            out[c] = pd.to_numeric(out[c], errors="coerce").round(0)
+
+    # Optional: cast obvious integer-like display cols to nullable Int64
+    int_like_cols = [
+        "n_relevant_runs",
+        "max_anchor_count",
+        "max_confidence",
+        "mean_confidence",
+        "max_precedent_score",
+        "mean_precedent_score",
+    ]
+    for c in int_like_cols:
+        if c in out.columns:
+            try:
+                out[c] = out[c].astype("Int64")
+            except Exception:
+                pass
+
+    # -------------------------
+    # Drop helper norm columns
+    # -------------------------
+    out = out.drop(
+        columns=[c for c in ["runs_norm", "anchors_norm", "conf_norm", "precedent_norm"] if c in out.columns]
+    )
+
+    # -------------------------
+    # Sort strongest PDFs first
+    # -------------------------
     sort_cols = [
-        "n_relevant",
+        "precedent_strength",
+        "n_relevant_runs",
         "max_anchor_count",
         "max_confidence",
         "max_precedent_score",
-        "n_runs",
     ]
     sort_cols = [c for c in sort_cols if c in out.columns]
-    out = out.sort_values(sort_cols, ascending=[False] * len(sort_cols), na_position="last").reset_index(drop=True)
+
+    out = out.sort_values(
+        sort_cols,
+        ascending=[False] * len(sort_cols),
+        na_position="last"
+    ).reset_index(drop=True)
 
     return out

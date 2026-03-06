@@ -26,6 +26,32 @@ Y_PATH = REPO_ROOT / "output" / "Y_inferred.json"
 # -------------------------
 # Helpers
 # -------------------------
+
+def as_list(x):
+    """Safely normalize scalar/list/np-array/arrow-list/pandas objects into a Python list."""
+    if x is None:
+        return []
+    # pandas NaN / NA
+    try:
+        if pd.isna(x):
+            return []
+    except Exception:
+        pass
+
+    # numpy / pyarrow / pandas objects often have .tolist()
+    if hasattr(x, "tolist"):
+        try:
+            return x.tolist()
+        except Exception:
+            pass
+
+    # native list-likes
+    if isinstance(x, (list, tuple, set)):
+        return list(x)
+
+    # scalar fallback
+    return [x]
+
 def _safe_int_list_tag(idxs: List[int], max_items: int = 20) -> str:
     """
     Build a compact tag like 'Y_3' or 'Y_3_7_9'. Truncates if too many.
@@ -52,11 +78,20 @@ def load_grouped_jobs(path: str) -> pd.DataFrame:
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"grouped_jobs_df not found: {p}")
-    if p.suffix.lower() in [".parquet"]:
-        return pd.read_parquet(p)
-    if p.suffix.lower() in [".csv"]:
-        return pd.read_csv(p)
-    raise ValueError("Unsupported file type. Use .parquet or .csv")
+
+    if p.suffix.lower() == ".parquet":
+        df = pd.read_parquet(p)
+    elif p.suffix.lower() == ".csv":
+        df = pd.read_csv(p)
+    else:
+        raise ValueError("Unsupported file type. Use .parquet or .csv")
+
+    # 🔥 Critical: normalize list-like columns that may round-trip as arrays
+    for col in ["matched_needles", "x_tests"]:
+        if col in df.columns:
+            df[col] = df[col].apply(as_list)
+
+    return df
 
 @st.cache_data(show_spinner=False)
 def load_y_rows() -> dict:
@@ -179,62 +214,45 @@ c4.metric("Unique PDFs", jobs_df["et_path"].nunique())
 
 st.divider()
 
-# Selection UI
-selected_ilocs: List[int] = []
+# -------------------------
+# SELECT BY UNIQUE row_id (WS driver)
+# -------------------------
+st.subheader("Select WS row_id(s) to run")
 
-if selection_mode == "DataFrame index (iloc)":
-    st.subheader("Select by DataFrame index (iloc)")
-    st.caption("Enter indices like: 3 or 3,7,9 or 0-25")
+unique_row_ids = sorted(
+    pd.Series(jobs_df["row_id"])
+      .dropna()
+      .unique()
+      .tolist()
+)
 
-    raw = st.text_input("Indices", value="3")
-    raw = raw.strip()
+selected_row_ids = st.multiselect(
+    "row_id (unique values from grouped_jobs_df)",
+    options=unique_row_ids,
+    default=unique_row_ids[:1] if unique_row_ids else []
+)
 
-    def parse_ilocs(s: str) -> List[int]:
-        if not s:
-            return []
-        s = s.replace(" ", "")
-        out: List[int] = []
-        parts = s.split(",")
-        for p in parts:
-            if "-" in p:
-                a, b = p.split("-", 1)
-                a_i, b_i = int(a), int(b)
-                lo, hi = min(a_i, b_i), max(a_i, b_i)
-                out.extend(list(range(lo, hi + 1)))
-            else:
-                out.append(int(p))
-        # de-dupe preserve order
-        seen = set()
-        out2 = []
-        for i in out:
-            if i in seen:
-                continue
-            seen.add(i)
-            out2.append(i)
-        return out2
+# Prefilter parquet by selected row_id(s)
+if selected_row_ids:
+    plan_jobs = jobs_df[jobs_df["row_id"].isin(selected_row_ids)].copy()
+else:
+    plan_jobs = jobs_df.head(0).copy()
 
-    try:
-        selected_ilocs = parse_ilocs(raw)
-    except Exception as e:
-        st.error(f"Could not parse indices: {e}")
-        st.stop()
+# Optional caps
+if ONLY_X_KEY is not None and not plan_jobs.empty:
+    def _filter_tests(lst):
+        return [t for t in (lst or []) if t.get("x_key") == ONLY_X_KEY]
+    plan_jobs["x_tests"] = plan_jobs["x_tests"].apply(_filter_tests)
+    plan_jobs = plan_jobs[plan_jobs["x_tests"].apply(lambda x: len(x or []) > 0)].copy()
 
-elif selection_mode == "row_id":
-    st.subheader("Select by row_id")
-    options = sorted(jobs_df["row_id"].dropna().astype(str).unique().tolist())
-    chosen = st.multiselect("row_id", options, default=options[:1] if options else [])
-    if chosen:
-        selected_ilocs = jobs_df.index[jobs_df["row_id"].astype(str).isin(chosen)].tolist()
+if MAX_JOBS is not None and not plan_jobs.empty:
+    plan_jobs = plan_jobs.head(int(MAX_JOBS)).copy()
 
-else:  # y_row_id
-    st.subheader("Select by y_row_id")
-    options = sorted(jobs_df["y_row_id"].dropna().astype(str).unique().tolist())
-    chosen = st.multiselect("y_row_id", options, default=options[:1] if options else [])
-    if chosen:
-        selected_ilocs = jobs_df.index[jobs_df["y_row_id"].astype(str).isin(chosen)].tolist()
-
-# Filter plan_jobs
-plan_jobs = jobs_df.iloc[selected_ilocs].copy() if selected_ilocs else jobs_df.head(0).copy()
+st.write(f"Selected row_id(s): {selected_row_ids}")
+st.write(
+    f"Jobs after prefilter: {len(plan_jobs)} | "
+    f"Unique PDFs: {plan_jobs['et_path'].nunique() if len(plan_jobs) else 0}"
+)
 
 if ONLY_X_KEY is not None and not plan_jobs.empty:
     def _filter_tests(lst):
@@ -246,7 +264,10 @@ if MAX_JOBS is not None and not plan_jobs.empty:
     plan_jobs = plan_jobs.head(MAX_JOBS).copy()
 
 # Output path preview
-out_path = build_output_path(out_dir, selected_ilocs[:], DEBUG)
+row_tag = "Y_" + "_".join(str(r) for r in selected_row_ids) if selected_row_ids else "Y_NONE"
+ts = time.strftime("%Y%m%d_%H%M%S")
+mode = "DEBUG" if DEBUG else "BATCH"
+out_path = out_dir / f"batch_results_{mode}_{row_tag}_{ts}.jsonl"
 
 st.subheader("Plan preview")
 st.write(f"Selected jobs: **{len(plan_jobs)}**")
@@ -336,7 +357,7 @@ if run_clicked:
             pdf_path = Path(str(job["et_path"]))
             row_id = job.get("row_id")
             match_mode = job.get("match_mode")
-            matched_needles = job.get("matched_needles") or []
+            matched_needles = as_list(job.get("matched_needles"))
 
             try:
                 if y_row_id not in rows:
@@ -348,9 +369,10 @@ if run_clicked:
                 paras = get_paras(pdf_path, loop_mod, paras_cache)
                 doc_id = pdf_path.stem
 
-                for t in (job.get("x_tests") or []):
+                for t in as_list(job.get("x_tests")):
                     x_key = t.get("x_key")
                     x_name = t.get("x_name", x_key)
+
                     try:
                         merged = qo_mod.merge_indicators_and_excludes(y_obj, [x_key])
                         atom = AtomQuery(
@@ -367,6 +389,7 @@ if run_clicked:
 
                         verdict = safe_to_dict(getattr(res, "verdict", None))
                         negative_exit = safe_to_dict(getattr(res, "negative_exit", None))
+                        trace_tail = as_list(getattr(res, "trace", None))[-3:]
 
                         if verdict:
                             n_ok += 1
@@ -386,7 +409,7 @@ if run_clicked:
                             "verdict": verdict,
                             "negative_exit": negative_exit,
                             "iters": getattr(res, "iters", None),
-                            "trace_tail": (getattr(res, "trace", None) or [])[-3:],
+                            "trace_tail": trace_tail,
                         }
                         f.write(json.dumps(row_out, ensure_ascii=False) + "\n")
 
