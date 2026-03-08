@@ -528,21 +528,41 @@ def run_corpus_builder(
     for needle_norm in needles_any_norm:
         label = norm_to_original[needle_norm]
         col = f"has__{_slugify(label)}"
-        df_out[col] = df_out.get("hit_any", "").fillna("").apply(
-            lambda s: needle_norm in [x.strip() for x in s.split(";") if x.strip()]
-        )
+        hit_series = df_out["hit_any"] if "hit_any" in df_out.columns else ""
+
+        if isinstance(hit_series, str):
+            df_out[col] = False
+        else:
+            df_out[col] = hit_series.fillna("").apply(
+                lambda s: needle_norm in [x.strip() for x in s.split(";") if x.strip()]
+            )
 
     # boolean column for appeal-scope regex
-    df_out["has__appeal_scope_regex"] = df_out.get("appeal_scope_hit", False).fillna(False).astype(bool)
+    df_out["has__appeal_scope_regex"] = (
+    df_out["appeal_scope_hit"].fillna(False).astype(bool)
+    if "appeal_scope_hit" in df_out.columns
+    else False
+)
 
-    # boolean column for assumed-intention regex
-    df_out["has__assumed_intention_regex"] = df_out.get("assumed_intention_hit", False).fillna(False).astype(bool)
-
+    df_out["has__assumed_intention_regex"] = (
+        df_out["assumed_intention_hit"].fillna(False).astype(bool)
+        if "assumed_intention_hit" in df_out.columns
+        else False
+    )
     # ANY flag (what Moltie would use)
     # NOTE: must build the column list based on the original needles_any labels
     needle_cols = [f"has__{_slugify(x)}" for x in needles_any]
+
+    extra_cols = []
+    if "has__appeal_scope_regex" in df_out.columns:
+        extra_cols.append("has__appeal_scope_regex")
+    if "has__assumed_intention_regex" in df_out.columns:
+        extra_cols.append("has__assumed_intention_regex")
+
+    cols_to_check = [c for c in needle_cols if c in df_out.columns] + extra_cols
+
     df_out["has__any_needle"] = (
-        df_out[needle_cols + ["has__appeal_scope_regex", "has__assumed_intention_regex"]]
+        df_out[cols_to_check]
         .fillna(False)
         .any(axis=1)
     )
