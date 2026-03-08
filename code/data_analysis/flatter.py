@@ -242,7 +242,6 @@ def flatten_moltie_jsonl(
 
     return df_flat
 
-
 def pdf_hit_frequency_view(df_flat: pd.DataFrame) -> pd.DataFrame:
     """
     Create a PDF-level relevant-only summary view from the flat DF:
@@ -251,7 +250,7 @@ def pdf_hit_frequency_view(df_flat: pd.DataFrame) -> pd.DataFrame:
     - counts relevant runs only
     - computes confidence / precedent metrics from relevant rows only
     - pipes together semantic fields across relevant rows:
-        matched_needles, use_mode, proposition_winner,
+        x_name, matched_needles, use_mode, proposition_winner,
         appeal_outcome, successful_party, note
     - adds a normalized composite strength metric in [0, 1]:
         precedent_strength
@@ -263,6 +262,10 @@ def pdf_hit_frequency_view(df_flat: pd.DataFrame) -> pd.DataFrame:
     - Numeric summary fields are rounded to 0 decimals, except precedent_strength.
     """
 
+    from pathlib import Path
+    import numpy as np
+    import pandas as pd
+
     if df_flat is None or df_flat.empty:
         return pd.DataFrame(
             columns=[
@@ -272,6 +275,7 @@ def pdf_hit_frequency_view(df_flat: pd.DataFrame) -> pd.DataFrame:
                 "max_confidence", "mean_confidence",
                 "max_precedent_score", "mean_precedent_score",
                 "precedent_strength",
+                "x_name_pdf",
                 "matched_needles_pdf",
                 "use_mode_pdf",
                 "proposition_winner_pdf",
@@ -313,6 +317,7 @@ def pdf_hit_frequency_view(df_flat: pd.DataFrame) -> pd.DataFrame:
                 "max_confidence", "mean_confidence",
                 "max_precedent_score", "mean_precedent_score",
                 "precedent_strength",
+                "x_name_pdf",
                 "matched_needles_pdf",
                 "use_mode_pdf",
                 "proposition_winner_pdf",
@@ -333,6 +338,7 @@ def pdf_hit_frequency_view(df_flat: pd.DataFrame) -> pd.DataFrame:
                 "max_confidence", "mean_confidence",
                 "max_precedent_score", "mean_precedent_score",
                 "precedent_strength",
+                "x_name_pdf",
                 "matched_needles_pdf",
                 "use_mode_pdf",
                 "proposition_winner_pdf",
@@ -346,10 +352,23 @@ def pdf_hit_frequency_view(df_flat: pd.DataFrame) -> pd.DataFrame:
     # Helpers
     # -------------------------
     def _is_nullish(x):
+        """
+        Scalar-safe null checker.
+        Important: for array-like inputs, never return pd.isna(x) directly,
+        because that can produce a boolean array and break `if ...`.
+        """
         if x is None:
             return True
+
+        if isinstance(x, str):
+            return not x.strip()
+
+        if isinstance(x, (list, tuple, set, np.ndarray)):
+            return False
+
         try:
-            return pd.isna(x)
+            y = pd.isna(x)
+            return bool(y) if isinstance(y, (bool, np.bool_)) else False
         except Exception:
             return False
 
@@ -377,6 +396,7 @@ def pdf_hit_frequency_view(df_flat: pd.DataFrame) -> pd.DataFrame:
     def _pipe_unique_listlike(series: pd.Series) -> str | None:
         """
         Flatten list-like cells (e.g. matched_needles), dedup, preserve first appearance order.
+        Handles list / tuple / set / np.ndarray.
         Falls back to scalar handling if a cell is not list-like.
         """
         seen = set()
@@ -386,8 +406,10 @@ def pdf_hit_frequency_view(df_flat: pd.DataFrame) -> pd.DataFrame:
             if _is_nullish(val):
                 continue
 
-            if isinstance(val, list):
-                items = val
+            if isinstance(val, np.ndarray):
+                items = val.tolist()
+            elif isinstance(val, (list, tuple, set)):
+                items = list(val)
             else:
                 items = [val]
 
@@ -432,6 +454,7 @@ def pdf_hit_frequency_view(df_flat: pd.DataFrame) -> pd.DataFrame:
     # -------------------------
     piped = g.apply(
         lambda grp: pd.Series({
+            "x_name_pdf": _pipe_unique_series(grp["x_name"]) if "x_name" in grp.columns else None,
             "matched_needles_pdf": _pipe_unique_listlike(grp["matched_needles"]) if "matched_needles" in grp.columns else None,
             "use_mode_pdf": _pipe_unique_series(grp["use_mode"]) if "use_mode" in grp.columns else None,
             "proposition_winner_pdf": _pipe_unique_series(grp["proposition_winner"]) if "proposition_winner" in grp.columns else None,
@@ -537,5 +560,34 @@ def pdf_hit_frequency_view(df_flat: pd.DataFrame) -> pd.DataFrame:
         ascending=[False] * len(sort_cols),
         na_position="last"
     ).reset_index(drop=True)
+
+    # -------------------------
+    # Final column ordering
+    # -------------------------
+    desired_order = [
+        "et_path",
+
+        "n_relevant_runs",
+        "max_anchor_count",
+
+        "max_confidence",
+        "mean_confidence",
+
+        "max_precedent_score",
+        "mean_precedent_score",
+        "precedent_strength",
+
+        "matched_needles_pdf",
+        "use_mode_pdf",
+        "proposition_winner_pdf",
+        "appeal_outcome_pdf",
+        "successful_party_pdf",
+
+        "x_name_pdf",
+        "note_pdf",
+    ]
+
+    desired_order = [c for c in desired_order if c in out.columns]
+    out = out[desired_order]
 
     return out
