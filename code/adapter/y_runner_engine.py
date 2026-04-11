@@ -57,6 +57,12 @@ class YRunnerConfig:
     master_csv_name: str = "_match_frequencies.csv"
     strict_schema_gate: bool = True
 
+    # NEW:
+    #   "master_csv" -> validate against legacy ET master frequency CSV
+    #   "tag_spec"   -> validate against _tag_spec.json
+    schema_gate_source: str = "master_csv"
+    tag_spec_path: Optional[Path] = None
+
 
 # =========================================================
 # HELPERS (stable)
@@ -92,8 +98,8 @@ def parse_debug_selector(selector: str, n_rows: int) -> list[int]:
             return None if x == "" else int(x)
 
         start = to_int(parts[0]) if len(parts) >= 1 else None
-        stop  = to_int(parts[1]) if len(parts) >= 2 else None
-        step  = to_int(parts[2]) if len(parts) == 3 else None
+        stop = to_int(parts[1]) if len(parts) >= 2 else None
+        step = to_int(parts[2]) if len(parts) == 3 else None
 
         sl = slice(start, stop, step)
         return list(range(n_rows))[sl]
@@ -326,43 +332,120 @@ def flatten_selected(selected: list[dict], allowed_tags: list[str]) -> dict[str,
     return rec
 
 
-def validate_enhanced_csv_schema_against_master(df_out: pd.DataFrame, master_freq_path: Path, *, strict: bool = True) -> pd.DataFrame:
+# =========================================================
+# SCHEMA GATE HELPERS
+# =========================================================
+
+def _expected_has_columns_from_master_csv(master_freq_path: Path) -> list[str]:
     mf = pd.read_csv(master_freq_path)
     if "match_type" not in mf.columns:
         raise KeyError(f"Master freq table missing 'match_type': {master_freq_path}")
 
-    master_cols = sorted({str(x).strip() for x in mf["match_type"].dropna().tolist() if str(x).strip()})
-    master_set = set(master_cols)
+    raw = [str(x).strip() for x in mf["match_type"].dropna().tolist() if str(x).strip()]
+    return sorted(set(raw))
 
+
+def _expected_has_columns_from_tag_spec(tag_spec_path: Path) -> list[str]:
+    spec = json.loads(tag_spec_path.read_text(encoding="utf-8"))
+    tags = spec.get("tags", [])
+    if not isinstance(tags, list):
+        raise ValueError(f"Invalid tag spec: missing/invalid 'tags' list: {tag_spec_path}")
+
+    expected: list[str] = []
+    for t in tags:
+        if not isinstance(t, dict):
+            continue
+        tag = str(t.get("tag") or "").strip()
+        if not tag:
+            continue
+        expected.append(f"has__{tag}")
+
+    computed = spec.get("computed", [])
+    if isinstance(computed, list) and "any_needle" in computed:
+        expected.append("has__any_needle")
+
+    return sorted(set(expected))
+
+
+def validate_enhanced_csv_schema(
+    df_out: pd.DataFrame,
+    *,
+    strict: bool = True,
+    source: str,
+    master_freq_path: Optional[Path] = None,
+    tag_spec_path: Optional[Path] = None,
+) -> pd.DataFrame:
+    if source == "master_csv":
+        if master_freq_path is None:
+            raise ValueError("master_freq_path is required when source='master_csv'")
+        expected_cols = _expected_has_columns_from_master_csv(master_freq_path)
+
+    elif source == "tag_spec":
+        if tag_spec_path is None:
+            raise ValueError("tag_spec_path is required when source='tag_spec'")
+        expected_cols = _expected_has_columns_from_tag_spec(tag_spec_path)
+
+    else:
+        raise ValueError(f"Unsupported schema gate source: {source}")
+
+    expected_set = set(expected_cols)
     out_has_cols = sorted([c for c in df_out.columns if isinstance(c, str) and c.startswith("has__")])
     out_set = set(out_has_cols)
 
-    missing_in_out = sorted(master_set - out_set)
-    extra_in_out = sorted(out_set - master_set)
+    missing_in_out = sorted(expected_set - out_set)
+    extra_in_out = sorted(out_set - expected_set)
 
     diag_rows = []
-    for c in master_cols:
-        diag_rows.append({"kind": "master_expected", "col": c, "present_in_output": c in out_set})
+    for c in expected_cols:
+        diag_rows.append({
+            "kind": "expected_has__",
+            "col": c,
+            "present_in_output": c in out_set,
+            "source": source,
+        })
 
     if strict:
         for c in extra_in_out:
-            diag_rows.append({"kind": "output_extra_has__", "col": c, "present_in_output": True})
+            diag_rows.append({
+                "kind": "output_extra_has__",
+                "col": c,
+                "present_in_output": True,
+                "source": source,
+            })
 
     diag = pd.DataFrame(diag_rows)
 
     if missing_in_out:
         raise AssertionError(
-            "Enhanced CSV schema mismatch: missing columns that exist in ET master frequency table.\n"
+            "Enhanced CSV schema mismatch: missing expected has__ columns.\n"
             f"Missing ({len(missing_in_out)}): {missing_in_out}"
         )
 
     if strict and extra_in_out:
         raise AssertionError(
-            "Enhanced CSV schema mismatch: output has__ columns not present in ET master frequency table.\n"
+            "Enhanced CSV schema mismatch: output has__ columns not present in expected schema.\n"
             f"Extra ({len(extra_in_out)}): {extra_in_out}"
         )
 
     return diag
+
+
+def validate_enhanced_csv_schema_against_master(
+    df_out: pd.DataFrame,
+    master_freq_path: Path,
+    *,
+    strict: bool = True,
+) -> pd.DataFrame:
+    """
+    Backward-compatible wrapper for legacy callers.
+    """
+    return validate_enhanced_csv_schema(
+        df_out,
+        strict=strict,
+        source="master_csv",
+        master_freq_path=master_freq_path,
+        tag_spec_path=None,
+    )
 
 
 # =========================================================
@@ -373,7 +456,7 @@ def run_y_pipeline(
     *,
     cfg: YRunnerConfig,
     allowed_tags: list[str],
-    tag_defs: dict[str, str],  # not used by engine directly unless your prompt fn closes over it
+    tag_defs: dict[str, str],  # kept for notebook parity / prompt closures
     needle_prompt_fn: Callable[[str], str],
     canonicalize_fn: Callable[[str, list[str]], str] = canonicalize_tag,
 ) -> tuple[pd.DataFrame, dict[str, Any], Optional[pd.DataFrame]]:
@@ -383,17 +466,29 @@ def run_y_pipeline(
     Notebook supplies:
       - allowed_tags
       - tag_defs
-      - needle_prompt_fn (prompt builder that can use tag_defs)
+      - needle_prompt_fn
       - (optional) canonicalize_fn
 
     Returns: (df_out, y_results, diag_or_none)
     """
-    cfg = YRunnerConfig(**{**cfg.__dict__})  # explicit (keeps behavior stable)
+    cfg = YRunnerConfig(**{**cfg.__dict__})
     cfg.out_dir.mkdir(parents=True, exist_ok=True)
 
     master_freq_path = (cfg.matches_root / cfg.master_csv_name).resolve()
-    if cfg.strict_schema_gate and (not master_freq_path.exists()):
-        raise FileNotFoundError(f"Missing ET master freq CSV: {master_freq_path}")
+
+    if cfg.strict_schema_gate:
+        if cfg.schema_gate_source == "master_csv":
+            if not master_freq_path.exists():
+                raise FileNotFoundError(f"Missing ET master freq CSV: {master_freq_path}")
+
+        elif cfg.schema_gate_source == "tag_spec":
+            if cfg.tag_spec_path is None:
+                raise ValueError("cfg.tag_spec_path is required when schema_gate_source='tag_spec'")
+            if not cfg.tag_spec_path.exists():
+                raise FileNotFoundError(f"Missing tag spec JSON: {cfg.tag_spec_path}")
+
+        else:
+            raise ValueError(f"Unsupported schema_gate_source: {cfg.schema_gate_source}")
 
     df = pd.read_csv(cfg.csv_path)
     if cfg.text_col not in df.columns:
@@ -476,7 +571,6 @@ def run_y_pipeline(
         rec.update(flatten_selected(selected, allowed_tags))
         enrich_by_idx[idx] = rec
 
-    # MERGE + WRITE
     enrich_df = pd.DataFrame.from_dict(enrich_by_idx, orient="index")
     enrich_df.index.name = "row_index_0based"
 
@@ -493,8 +587,16 @@ def run_y_pipeline(
 
     diag = None
     if cfg.strict_schema_gate:
-        print("\n[gate] Validating enhanced needle columns against ET master frequency table...")
-        diag = validate_enhanced_csv_schema_against_master(df_out, master_freq_path, strict=True)
+        print(f"\n[gate] Validating enhanced needle columns using source='{cfg.schema_gate_source}'...")
+
+        diag = validate_enhanced_csv_schema(
+            df_out,
+            strict=True,
+            source=cfg.schema_gate_source,
+            master_freq_path=master_freq_path if cfg.schema_gate_source == "master_csv" else None,
+            tag_spec_path=cfg.tag_spec_path if cfg.schema_gate_source == "tag_spec" else None,
+        )
+
         print("[gate] OK — schema aligned.")
 
     return df_out, y_results, diag

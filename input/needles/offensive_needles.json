@@ -1,0 +1,74 @@
+{
+  "name": "offensive_needles_ws_counter",
+  "description": "Claimant-favouring needle pack calibrated from Witness Statement. Designed to apply maximum pressure on respondent defence by targeting role definition, absence of contemporaneous prohibition, post hoc intent inference, investigation failure, and predetermination.",
+  "needles_all": [
+    "unfair dismissal"
+  ],
+  "needles_any": [
+    "no contemporaneous evidence",
+    "predetermination",
+    "gross misconduct",
+    "disciplinary hearing",
+    "investigation",
+    "appeal",
+    "grievance",
+    "role",
+    "duties",
+    "instructions",
+    "performance",
+    "evidence",
+    "warning"
+  ],
+  "regex_buckets": {
+
+    "undefined_primary_duty": {
+      "folder_name": "_UNDEFINED_PRIMARY_DUTY",
+      "flags": ["IGNORECASE", "VERBOSE"],
+      "pattern": "\\b(?:role|duties|responsibilit(?:y|ies)|job\\s+role|primary\\s+duty)\\b.{0,120}\\b(?:unclear|not\\s+defined|not\\s+established|misunderstood|mischaracteri[sz]ed|changed|shifted)\\b|\\b(?:queue|tickets?)\\b.{0,120}\\b(?:not\\s+(?:the\\s+)?primary|secondary|situational|only\\s+sometimes)\\b|\\b(?:failed|failure)\\s+to\\s+(?:define|establish|clarify)\\b.{0,120}\\b(?:role|duties|primary\\s+duty)\\b"
+    },
+
+    "absence_of_contemporaneous_prohibition": {
+      "folder_name": "_NO_CONTEMPORANEOUS_PROHIBITION",
+      "flags": ["IGNORECASE", "VERBOSE"],
+      "pattern": "\\b(?:no|without)\\b.{0,40}\\b(?:contemporaneous|prior|previous)\\b.{0,40}\\b(?:evidence|record|documentation|warning|instruction|guidance)\\b|\\b(?:not\\s+warned|never\\s+warned|not\\s+told|never\\s+told)\\b.{0,120}\\b(?:misconduct|prohibited|unacceptable)\\b|\\b(?:no\\s+record|no\\s+evidence)\\b.{0,120}\\b(?:of\\s+any\\s+(?:concern|issue|instruction))\\b"
+    },
+
+    "management_acquiescence": {
+      "folder_name": "_MANAGEMENT_ACQUIESCENCE",
+      "flags": ["IGNORECASE", "VERBOSE"],
+      "pattern": "\\b(?:ok(?:ay)?|fine|do\\s+not\\s+worry|no\\s+problem)\\b|\\b(?:raised|reported|explained)\\b.{0,120}\\b(?:issue|concern|crash|problem)\\b.{0,120}\\b(?:no\\s+action|no\\s+follow\\s*up|told\\s+to\\s+continue)\\b|\\b(?:continued|continued\\s+to)\\b.{0,120}\\b(?:without\\s+restriction|openly|as\\s+before)\\b"
+    },
+
+    "post_hoc_intent_inference": {
+      "folder_name": "_POST_HOC_INTENT_INFERENCE",
+      "flags": ["IGNORECASE", "VERBOSE"],
+      "pattern": "\\b(?:figures?|metrics?|data|numbers?|counts?)\\b.{0,120}\\b(?:used\\s+to\\s+infer|relied\\s+upon\\s+to\\s+show|treated\\s+as\\s+evidence\\s+of)\\b.{0,140}\\b(?:intent|deliberate\\s+behaviour|avoid(?:ance|ing))\\b|\\b(?:crashes?|system\\s+events?)\\b.{0,120}\\b(?:intent|deliberate|avoid(?:ance|ing))\\b|\\b(?:no\\s+correlation|no\\s+causal\\s+link|no\\s+analysis)\\b"
+    },
+
+    "logical_inconsistency_performance": {
+      "folder_name": "_LOGICAL_INCONSISTENCY_PERFORMANCE",
+      "flags": ["IGNORECASE", "VERBOSE"],
+      "pattern": "\\b(?:above\\s+average|strong\\s+performance|high\\s+output)\\b|\\b(?:resolved|handled)\\b.{0,80}\\b(?:tickets?|cases?)\\b.{0,120}\\b(?:above\\s+average|effectively)\\b|\\b(?:avoid(?:ing|ance)|ticket\\s+avoidance)\\b.{0,140}\\b(?:inconsistent\\s+with|contradicted\\s+by)\\b.{0,120}\\b(?:performance|output)\\b"
+    },
+
+    "failure_to_engage_core_defence": {
+      "folder_name": "_FAILURE_TO_ENGAGE_DEFENCE",
+      "flags": ["IGNORECASE", "VERBOSE"],
+      "pattern": "\\b(?:investigation|hearing|process)\\b.{0,140}\\b(?:failed|did\\s+not|omitted\\s+to)\\b.{0,140}\\b(?:consider|address|engage\\s+with|test)\\b.{0,160}\\b(?:explanation|defence|projects?|duties|context)\\b|\\b(?:points\\s+raised|defence)\\b.{0,120}\\b(?:ignored|not\\s+addressed|not\\s+considered)\\b"
+    },
+
+    "procedural_prejudice": {
+      "folder_name": "_PROCEDURAL_PREJUDICE",
+      "flags": ["IGNORECASE", "VERBOSE"],
+      "pattern": "\\b(?:short\\s+notice|two\\s+days|insufficient\\s+time)\\b|\\b(?:no\\s+documents|no\\s+logs|no\\s+data\\s+provided)\\b|\\b(?:limited\\s+ability\\s+to\\s+prepare|unable\\s+to\\s+prepare)\\b|\\b(?:not\\s+given\\s+opportunity\\s+to\\s+respond|unable\\s+to\\s+challenge)\\b"
+    },
+
+    "predetermination_and_appeal_failure": {
+      "folder_name": "_PREDETERMINATION_APPEAL",
+      "flags": ["IGNORECASE", "VERBOSE"],
+      "pattern": "\\b(?:predetermination|pre\\s*-?determined|decision\\s+already\\s+made|closed\\s+mind)\\b|\\b(?:appeal)\\b.{0,140}\\b(?:failed|did\\s+not|simply\\s+repeated|rubber\\s*stamp)\\b.{0,140}\\b(?:decision|reasoning|outcome)\\b|\\b(?:grievance|appeal)\\b.{0,120}\\b(?:ignored|not\\s+addressed|dismissed\\s+without\\s+analysis)\\b"
+    }
+
+  },
+  "regex_only_folder_name": "_REGEX_ONLY_OFFENSIVE"
+}

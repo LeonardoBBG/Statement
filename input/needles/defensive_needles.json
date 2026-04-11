@@ -1,0 +1,65 @@
+{
+  "name": "defensive_needles",
+  "description": "Respondent-favouring needle pack derived from ET3. Focused on intentional misconduct, policy breach, reasonable investigation, credibility attacks, and trust/confidence breakdown.",
+  "needles_all": [
+    "unfair dismissal"
+  ],
+  "needles_any": [
+    "gross misconduct",
+    "reasonable investigation",
+    "disciplinary hearing",
+    "policy",
+    "trust and confidence",
+    "misconduct",
+    "dismissal",
+    "queue",
+    "tickets",
+    "system"
+  ],
+  "regex_buckets": {
+
+    "intentional_misconduct_pattern": {
+      "folder_name": "_INTENTIONAL_MISCONDUCT_PATTERN",
+      "flags": ["IGNORECASE", "VERBOSE"],
+      "pattern": "\\b(?:intentional|deliberate|systematic|pattern\\s+of\\s+behaviour)\\b.{0,120}\\b(?:avoid(?:ing|ance)|manipulat(?:e|ion)|misconduct)\\b|\\b(?:repeated|numerous|significant\\s+number\\s+of)\\b.{0,80}\\b(?:incidents|crashes|events)\\b.{0,120}\\b(?:suggested|indicated|demonstrated)\\b.{0,120}\\b(?:intent|deliberate\\s+behaviour|misconduct)\\b"
+    },
+
+    "policy_breach_queue_priority": {
+      "folder_name": "_POLICY_BREACH_QUEUE_PRIORITY",
+      "flags": ["IGNORECASE", "VERBOSE"],
+      "pattern": "\\b(?:expected|required|fundamental|priority)\\b.{0,120}\\b(?:queue|tickets?|client\\s+queries|service\\s+levels)\\b|\\b(?:whilst\\s+in\\s+the\\s+queue|assigned\\s+to\\s+the\\s+queue)\\b.{0,120}\\b(?:must|should|expected\\s+to)\\b.{0,120}\\b(?:pick\\s+up|handle|respond\\s+to)\\b.{0,120}\\b(?:tickets?|queries)\\b|\\b(?:failed|failure)\\b.{0,80}\\b(?:to\\s+prioritise|prioritising)\\b.{0,120}\\b(?:tickets?|queue|client\\s+work)\\b"
+    },
+
+    "reasonable_investigation_defence": {
+      "folder_name": "_REASONABLE_INVESTIGATION_DEFENCE",
+      "flags": ["IGNORECASE", "VERBOSE"],
+      "pattern": "\\b(?:reasonable\\s+investigation|having\\s+conducted\\s+a\\s+reasonable\\s+investigation|following\\s+an\\s+investigation)\\b|\\b(?:reviewed|examined|considered)\\b.{0,120}\\b(?:records?|data|evidence|sample|patterns?)\\b|\\b(?:concluded|determined|found)\\b.{0,120}\\b(?:after\\s+(?:investigation|review))\\b"
+    },
+
+    "credibility_inconsistency_attack": {
+      "folder_name": "_CREDIBILITY_INCONSISTENCY_ATTACK",
+      "flags": ["IGNORECASE", "VERBOSE"],
+      "pattern": "\\b(?:inconsistent|contradictory|changed\\s+his\\s+account|shifted\\s+explanation)\\b|\\b(?:initially|originally)\\b.{0,120}\\b(?:stated|said|claimed)\\b.{0,120}\\b(?:later|subsequently)\\b.{0,120}\\b(?:said|accepted|acknowledged)\\b|\\b(?:admitted|accepted|acknowledged)\\b.{0,120}\\b(?:behaviour|conduct|awareness)\\b"
+    },
+
+    "failure_to_correct_behaviour": {
+      "folder_name": "_FAILURE_TO_CORRECT_BEHAVIOUR",
+      "flags": ["IGNORECASE", "VERBOSE"],
+      "pattern": "\\b(?:asked\\s+to\\s+correct|told\\s+to\\s+fix|instructed\\s+to\\s+correct)\\b.{0,120}\\b(?:behaviour|issue|problem)\\b|\\b(?:failed|failure)\\b.{0,80}\\b(?:to\\s+correct|to\\s+address|to\\s+resolve)\\b.{0,120}\\b(?:behaviour|issue|problem)\\b|\\b(?:continued|continued\\s+to)\\b.{0,120}\\b(?:after\\s+being\\s+told|after\\s+instruction)\\b"
+    },
+
+    "trust_and_confidence_breakdown": {
+      "folder_name": "_TRUST_CONFIDENCE_BREAKDOWN",
+      "flags": ["IGNORECASE", "VERBOSE"],
+      "pattern": "\\b(?:trust\\s+and\\s+confidence)\\b.{0,120}\\b(?:undermined|broken|lost|damaged|fundamentally\\s+undermined)\\b|\\b(?:honesty|integrity|transparency)\\b.{0,120}\\b(?:breach|failure|not\\s+met)\\b"
+    },
+
+    "band_of_reasonable_responses": {
+      "folder_name": "_BAND_OF_REASONABLE_RESPONSES",
+      "flags": ["IGNORECASE", "VERBOSE"],
+      "pattern": "\\b(?:band\\s+of\\s+reasonable\\s+responses|acted\\s+reasonably|reasonable\\s+and\\s+appropriate)\\b|\\b(?:fair\\s+procedure|followed\\s+a\\s+fair\\s+procedure)\\b|\\b(?:summary\\s+dismissal|gross\\s+misconduct)\\b.{0,120}\\b(?:appropriate|justified|warranted)\\b"
+    }
+
+  },
+  "regex_only_folder_name": "_REGEX_ONLY_DEFENSIVE"
+}

@@ -4,32 +4,21 @@ corpus_builder.py
 Stable ET corpus scanning + routing engine.
 Needles + regex are meant to be injected from Jupyter during calibration.
 
+Design rule:
+- needles_all   -> list[str]
+- needles_any   -> list[str]
+- regex_buckets -> dict[str, Pattern[str]]
+
 Design goal:
-- Keep calibration-varying parts out of this file (NEEDLES lists + regex text)
-- Keep everything else stable and testable (scan, routing, csv writing)
+- Keep calibration-varying parts out of this file
+  (needle lists + regex text/patterns)
+- Keep everything else stable and testable
+  (scan, routing, csv writing)
 
 Dependencies:
 - pandas
 - PyMuPDF (fitz)
 - tqdm
-
-Usage (Python):
-    from pathlib import Path
-    import re
-    from corpus_builder import run_corpus_builder
-
-    df = run_corpus_builder(
-        input_root=Path("/media/hello/Vault/Tribunals/ET_Cases/"),
-        matches_root=Path("/media/hello/Vault/Tribunals/_Matches"),
-        needles_all=["unfair dismissal"],
-        needles_any=["upheld", "verbal warning"],
-        appeal_scope_regex=re.compile(r"...", re.IGNORECASE | re.VERBOSE),
-        assumed_intention_regex=re.compile(r"...", re.IGNORECASE | re.VERBOSE),
-    )
-
-Usage (CLI):
-    python corpus_builder.py --input-root ... --matches-root ... --needles-all "unfair dismissal" --needles-any upheld --needles-any "verbal warning" ...
-    (regex via file paths; see CLI help)
 """
 
 from __future__ import annotations
@@ -37,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -57,7 +47,7 @@ class CorpusBuilderConfig:
     input_root: Path
     matches_root: Path
 
-    # scan knobs (can be stable defaults; optionally override from JN)
+    # scan knobs
     case_sensitive: bool = False
     min_pages: int = 4
     text_pages_head: int = 12
@@ -72,8 +62,6 @@ class CorpusBuilderConfig:
     master_csv_name: str = "_matches_index.csv"
 
     # special folders
-    regex_appeal_folder_name: str = "_APPEAL_SCOPE_REGEX"
-    regex_intent_folder_name: str = "_ASSUMED_INTENTION_REGEX"
     regex_only_folder_name: str = "_REGEX_ONLY"
 
 
@@ -141,7 +129,6 @@ def _extract_text_head_tail(doc: fitz.Document, head: int, tail: int) -> str:
 
     idxs = list(range(head_n))
 
-    # tail pages (avoid duplicates)
     if tail_n > 0:
         start = max(pages - tail_n, 0)
         tail_idxs = list(range(start, pages))
@@ -154,10 +141,21 @@ def _extract_text_head_tail(doc: fitz.Document, head: int, tail: int) -> str:
         try:
             chunks.append(doc.load_page(i).get_text("text"))
         except Exception:
-            # swallow page-level errors; keep scanning other pages
             pass
 
     return "\n".join(chunks)
+
+
+def _normalize_regex_folder_map(regex_buckets: dict[str, Pattern[str]],
+                                regex_folder_map: Optional[dict[str, str]]) -> dict[str, str]:
+    """
+    Ensure every regex bucket has a folder name.
+    """
+    out: dict[str, str] = {}
+    regex_folder_map = regex_folder_map or {}
+    for bucket_name in regex_buckets.keys():
+        out[bucket_name] = regex_folder_map.get(bucket_name, f"_{_slugify(bucket_name).upper()}")
+    return out
 
 
 # =========================================================
@@ -169,8 +167,7 @@ def scan_one(
     *,
     needles_all: list[str],
     needles_any: list[str],
-    appeal_scope_regex: Optional[Pattern[str]],
-    assumed_intention_regex: Optional[Pattern[str]],
+    regex_buckets: Optional[dict[str, Pattern[str]]],
     cfg: CorpusBuilderConfig,
 ) -> Optional[dict[str, Any]]:
     """
@@ -179,8 +176,7 @@ def scan_one(
       - extract head+tail text
       - require needles_all (ALL must be present)
       - compute which needles_any are present (simple substring)
-      - detect appeal-scope limitation via appeal_scope_regex
-      - detect assumed intention / motive via assumed_intention_regex
+      - detect regex bucket hits dynamically
 
     Returns:
       - if matched: { ... matched fields ..., ok=True, error=False }
@@ -188,6 +184,7 @@ def scan_one(
       - if error: { ok=False, error=True, error_msg=..., path=... }
     """
     p = Path(pdf_path)
+
     try:
         stat = p.stat()
         size_mb = stat.st_size / (1024 * 1024)
@@ -206,7 +203,7 @@ def scan_one(
         needles_all_n = [_norm(x, cfg.case_sensitive) for x in needles_all if x and x.strip()]
         needles_any_n = [_norm(x, cfg.case_sensitive) for x in needles_any if x and x.strip()]
 
-        # 1) MUST satisfy needles_all (gate)
+        # 1) MUST satisfy needles_all
         ok_all = all(k in text_n for k in needles_all_n) if needles_all_n else True
         if not ok_all:
             return None
@@ -214,26 +211,25 @@ def scan_one(
         # 2) substring hits
         hit_any = [k for k in needles_any_n if k in text_n]
 
-        # 3) regex hits (regex compiled IGNORECASE externally)
-        appeal_scope_hit = False
-        appeal_scope_match = ""
-        if appeal_scope_regex is not None:
-            m = appeal_scope_regex.search(text)
-            appeal_scope_hit = bool(m)
-            appeal_scope_match = (m.group(0)[:250] if m else "")
+        # 3) dynamic regex hits
+        regex_buckets = regex_buckets or {}
+        regex_hits: dict[str, bool] = {}
+        regex_matches: dict[str, str] = {}
 
-        assumed_intention_hit = False
-        assumed_intention_match = ""
-        if assumed_intention_regex is not None:
-            mi = assumed_intention_regex.search(text)
-            assumed_intention_hit = bool(mi)
-            assumed_intention_match = (mi.group(0)[:250] if mi else "")
+        any_regex_hit = False
+        for bucket_name, bucket_re in regex_buckets.items():
+            m = bucket_re.search(text) if bucket_re is not None else None
+            hit = bool(m)
+            regex_hits[bucket_name] = hit
+            regex_matches[bucket_name] = m.group(0)[:250] if m else ""
+            if hit:
+                any_regex_hit = True
 
-        # keep doc if it hits at least one needles_any OR either regex hit
-        if (not hit_any) and (not appeal_scope_hit) and (not assumed_intention_hit):
+        # keep doc if it hits at least one needles_any OR at least one regex bucket
+        if (not hit_any) and (not any_regex_hit):
             return None
 
-        return {
+        row: dict[str, Any] = {
             "ok": True,
             "error": False,
 
@@ -245,15 +241,14 @@ def scan_one(
             "hit_all": "; ".join([k for k in needles_all_n if k in text_n]),
             "hit_any": "; ".join(hit_any),
 
-            "appeal_scope_hit": bool(appeal_scope_hit),
-            "appeal_scope_match": appeal_scope_match,
-
-            "assumed_intention_hit": bool(assumed_intention_hit),
-            "assumed_intention_match": assumed_intention_match,
-
-            # convenience
-            "regex_only": bool((not hit_any) and (appeal_scope_hit or assumed_intention_hit)),
+            "regex_only": bool((not hit_any) and any_regex_hit),
         }
+
+        for bucket_name in regex_buckets.keys():
+            row[f"regex_hit__{_slugify(bucket_name)}"] = bool(regex_hits.get(bucket_name, False))
+            row[f"regex_match__{_slugify(bucket_name)}"] = regex_matches.get(bucket_name, "")
+
+        return row
 
     except Exception as e:
         return {
@@ -271,14 +266,14 @@ def _submit_in_chunks(
     chunk_size: int,
     needles_all: list[str],
     needles_any: list[str],
-    appeal_scope_regex: Optional[Pattern[str]],
-    assumed_intention_regex: Optional[Pattern[str]],
+    regex_buckets: Optional[dict[str, Pattern[str]]],
     cfg: CorpusBuilderConfig,
 ):
     """
     Yield futures, but avoid submitting everything at once (RAM-friendly).
     """
     chunk: list[Path] = []
+
     for it in items:
         chunk.append(it)
         if len(chunk) >= chunk_size:
@@ -288,8 +283,7 @@ def _submit_in_chunks(
                     str(p),
                     needles_all=needles_all,
                     needles_any=needles_any,
-                    appeal_scope_regex=appeal_scope_regex,
-                    assumed_intention_regex=assumed_intention_regex,
+                    regex_buckets=regex_buckets,
                     cfg=cfg,
                 )
             chunk = []
@@ -300,8 +294,7 @@ def _submit_in_chunks(
             str(p),
             needles_all=needles_all,
             needles_any=needles_any,
-            appeal_scope_regex=appeal_scope_regex,
-            assumed_intention_regex=assumed_intention_regex,
+            regex_buckets=regex_buckets,
             cfg=cfg,
         )
 
@@ -316,15 +309,17 @@ def run_corpus_builder(
     matches_root: Path,
     needles_all: list[str],
     needles_any: list[str],
-    appeal_scope_regex: Optional[Pattern[str]] = None,
-    assumed_intention_regex: Optional[Pattern[str]] = None,
+    regex_buckets: Optional[dict[str, Pattern[str]]] = None,
+    regex_folder_map: Optional[dict[str, str]] = None,
     cfg_overrides: Optional[dict[str, Any]] = None,
 ) -> pd.DataFrame:
     """
     Full scan + routing + master CSV creation.
 
-    NEEDLES + regex are meant to be passed in (from JN).
-    Everything else is stable engine logic.
+    Design rule:
+      - needles_all   -> list[str]
+      - needles_any   -> list[str]
+      - regex_buckets -> dict[str, Pattern[str]]
 
     Returns:
         DataFrame of matches + error rows (audit-friendly).
@@ -335,12 +330,13 @@ def run_corpus_builder(
     )
 
     if cfg_overrides:
-        # dataclass is frozen -> create a new instance safely
         base_cfg = CorpusBuilderConfig(**{**base_cfg.__dict__, **cfg_overrides})
 
     cfg = base_cfg
-
     cfg.matches_root.mkdir(parents=True, exist_ok=True)
+
+    regex_buckets = regex_buckets or {}
+    regex_folder_map = _normalize_regex_folder_map(regex_buckets, regex_folder_map)
 
     pdfs = list(iter_pdfs(cfg.input_root))
     rows: list[dict[str, Any]] = []
@@ -350,13 +346,14 @@ def run_corpus_builder(
     print(f"[scan] PDFs found: {len(pdfs)}")
     print(f"[scan] NEEDLES_ALL (must match all): {needles_all}")
     print(f"[scan] NEEDLES_ANY (substring OR regex): {needles_any}")
+    print(f"[scan] REGEX_BUCKETS: {list(regex_buckets.keys())}")
     print(f"[scan] Pages >= {cfg.min_pages}")
     print(f"[scan] Text scan: head={cfg.text_pages_head} pages, tail={cfg.text_pages_tail} pages")
     print(f"[scan] Workers={cfg.max_workers} | submit_chunk={cfg.submit_chunk_size}")
     print(f"[out] Principal matches folder: {cfg.matches_root}")
     print(f"[out] Preserve structure: {cfg.preserve_structure}")
 
-    # 1) Scan once in parallel (chunked submission)
+    # 1) Scan once in parallel
     with ProcessPoolExecutor(max_workers=cfg.max_workers) as ex:
         futs = list(
             _submit_in_chunks(
@@ -365,8 +362,7 @@ def run_corpus_builder(
                 chunk_size=cfg.submit_chunk_size,
                 needles_all=needles_all,
                 needles_any=needles_any,
-                appeal_scope_regex=appeal_scope_regex,
-                assumed_intention_regex=assumed_intention_regex,
+                regex_buckets=regex_buckets,
                 cfg=cfg,
             )
         )
@@ -376,20 +372,22 @@ def run_corpus_builder(
             if r is None:
                 stats["no_match"] += 1
                 continue
+
             if r.get("error"):
                 stats["error"] += 1
-                rows.append(r)  # keep error rows for audit
+                rows.append(r)
                 continue
 
             stats["match"] += 1
             if r.get("regex_only"):
                 stats["match_regex_only"] += 1
-            if r.get("appeal_scope_hit"):
-                stats["match_appeal_scope_regex"] += 1
-            if r.get("assumed_intention_hit"):
-                stats["match_assumed_intention_regex"] += 1
             if (r.get("hit_any") or "").strip():
                 stats["match_substring_any"] += 1
+
+            for bucket_name in regex_buckets.keys():
+                hit_col = f"regex_hit__{_slugify(bucket_name)}"
+                if r.get(hit_col):
+                    stats[f"match_regex__{bucket_name}"] += 1
 
             rows.append(r)
 
@@ -398,17 +396,15 @@ def run_corpus_builder(
         print("[scan] Matches: 0 (and no error rows)")
         return df
 
-    # Split out errors so they don't pollute the match routing
     df_err = df[df.get("error", False) == True].copy() if "error" in df.columns else df.iloc[0:0].copy()
     df_ok = df[df.get("ok", False) == True].copy() if "ok" in df.columns else df.iloc[0:0].copy()
 
     print(
         f"[stats] scanned={len(pdfs)} | match={stats['match']} | no_match={stats['no_match']} | error={stats['error']}"
     )
-    print(
-        f"[stats] substring_any={stats['match_substring_any']} | appeal_scope_regex={stats['match_appeal_scope_regex']} | "
-        f"assumed_intention_regex={stats['match_assumed_intention_regex']} | regex_only={stats['match_regex_only']}"
-    )
+    print(f"[stats] substring_any={stats['match_substring_any']} | regex_only={stats['match_regex_only']}")
+    for bucket_name in regex_buckets.keys():
+        print(f"[stats] regex::{bucket_name}={stats[f'match_regex__{bucket_name}']}")
 
     if df_ok.empty:
         print("[scan] No OK matches (only errors). Writing CSV only.")
@@ -416,12 +412,11 @@ def run_corpus_builder(
         df_ok = df_ok.sort_values(["pages", "size_mb"], ascending=False).reset_index(drop=True)
         print(f"[scan] OK matches: {len(df_ok)}")
 
-    # 2) Create one subfolder per NEEDLES_ANY term and copy files into each
+    # 2) Create one subfolder per NEEDLES_ANY term
     needles_any_norm = [_norm(x, cfg.case_sensitive) for x in needles_any if x and x.strip()]
     norm_to_original = {_norm(x, cfg.case_sensitive): x for x in needles_any if x and x.strip()}
 
     if not df_ok.empty:
-        # For routing, explode hit_any into a list (may be empty if only regex hit)
         df_ok["hit_any_list"] = df_ok.get("hit_any", "").fillna("").apply(
             lambda s: [x.strip() for x in s.split(";") if x.strip()]
         )
@@ -450,49 +445,32 @@ def run_corpus_builder(
                     preserve_structure=cfg.preserve_structure,
                 )
 
-        # 2b) Copy ALL appeal-scope regex hits into ONE dedicated folder
-        if "appeal_scope_hit" in df_ok.columns:
-            df_regex = df_ok[df_ok["appeal_scope_hit"] == True].copy()
-        else:
-            df_regex = df_ok.iloc[0:0].copy()
+        # 2b) Dynamic regex folders
+        for bucket_name in regex_buckets.keys():
+            hit_col = f"regex_hit__{_slugify(bucket_name)}"
+            folder_name = regex_folder_map[bucket_name]
 
-        print(f"[regex] APPEAL_SCOPE_REGEX hits: {len(df_regex)}")
+            if hit_col in df_ok.columns:
+                df_regex = df_ok[df_ok[hit_col] == True].copy()
+            else:
+                df_regex = df_ok.iloc[0:0].copy()
 
-        if not df_regex.empty:
-            out_dir = (cfg.matches_root / cfg.regex_appeal_folder_name).resolve()
-            out_dir.mkdir(parents=True, exist_ok=True)
+            print(f"[regex] {bucket_name} hits: {len(df_regex)}")
 
-            for src_str in tqdm(df_regex["path"].tolist(), desc=f"Copying -> {cfg.regex_appeal_folder_name}", unit="file"):
-                src = Path(src_str)
-                copy_to_subfolder(
-                    src=src,
-                    in_root=cfg.input_root,
-                    subfolder=out_dir,
-                    preserve_structure=cfg.preserve_structure,
-                )
+            if not df_regex.empty:
+                out_dir = (cfg.matches_root / folder_name).resolve()
+                out_dir.mkdir(parents=True, exist_ok=True)
 
-        # 2c) Copy ALL assumed-intention regex hits into ONE dedicated folder
-        if "assumed_intention_hit" in df_ok.columns:
-            df_intent = df_ok[df_ok["assumed_intention_hit"] == True].copy()
-        else:
-            df_intent = df_ok.iloc[0:0].copy()
+                for src_str in tqdm(df_regex["path"].tolist(), desc=f"Copying -> {folder_name}", unit="file"):
+                    src = Path(src_str)
+                    copy_to_subfolder(
+                        src=src,
+                        in_root=cfg.input_root,
+                        subfolder=out_dir,
+                        preserve_structure=cfg.preserve_structure,
+                    )
 
-        print(f"[regex] ASSUMED_INTENTION_REGEX hits: {len(df_intent)}")
-
-        if not df_intent.empty:
-            out_dir = (cfg.matches_root / cfg.regex_intent_folder_name).resolve()
-            out_dir.mkdir(parents=True, exist_ok=True)
-
-            for src_str in tqdm(df_intent["path"].tolist(), desc=f"Copying -> {cfg.regex_intent_folder_name}", unit="file"):
-                src = Path(src_str)
-                copy_to_subfolder(
-                    src=src,
-                    in_root=cfg.input_root,
-                    subfolder=out_dir,
-                    preserve_structure=cfg.preserve_structure,
-                )
-
-        # 2d) Copy regex-only hits into ONE dedicated folder
+        # 2c) Regex-only folder
         if "regex_only" in df_ok.columns:
             df_regex_only = df_ok[df_ok["regex_only"] == True].copy()
         else:
@@ -513,7 +491,7 @@ def run_corpus_builder(
                     preserve_structure=cfg.preserve_structure,
                 )
 
-    # 3) Write ONE master CSV in MATCHES_ROOT (and nowhere else)
+    # 3) Write master CSV
     df_out = df.copy()
 
     if "hit_any_list" in df_out.columns:
@@ -521,7 +499,7 @@ def run_corpus_builder(
 
     df_out["matches_root"] = str(cfg.matches_root)
 
-    # boolean columns per NEEDLES_ANY (from hit_any)
+    # boolean columns per NEEDLES_ANY
     needles_any_norm = [_norm(x, cfg.case_sensitive) for x in needles_any if x and x.strip()]
     norm_to_original = {_norm(x, cfg.case_sensitive): x for x in needles_any if x and x.strip()}
 
@@ -537,41 +515,31 @@ def run_corpus_builder(
                 lambda s: needle_norm in [x.strip() for x in s.split(";") if x.strip()]
             )
 
-    # boolean column for appeal-scope regex
-    df_out["has__appeal_scope_regex"] = (
-    df_out["appeal_scope_hit"].fillna(False).astype(bool)
-    if "appeal_scope_hit" in df_out.columns
-    else False
-)
+    # boolean columns per regex bucket
+    regex_flag_cols: list[str] = []
+    for bucket_name in regex_buckets.keys():
+        raw_hit_col = f"regex_hit__{_slugify(bucket_name)}"
+        final_col = f"has__{_slugify(bucket_name)}"
+        regex_flag_cols.append(final_col)
 
-    df_out["has__assumed_intention_regex"] = (
-        df_out["assumed_intention_hit"].fillna(False).astype(bool)
-        if "assumed_intention_hit" in df_out.columns
-        else False
-    )
-    # ANY flag (what Moltie would use)
-    # NOTE: must build the column list based on the original needles_any labels
+        if raw_hit_col in df_out.columns:
+            df_out[final_col] = df_out[raw_hit_col].fillna(False).astype(bool)
+        else:
+            df_out[final_col] = False
+
+    # ANY flag
     needle_cols = [f"has__{_slugify(x)}" for x in needles_any]
+    cols_to_check = [c for c in needle_cols if c in df_out.columns] + [c for c in regex_flag_cols if c in df_out.columns]
 
-    extra_cols = []
-    if "has__appeal_scope_regex" in df_out.columns:
-        extra_cols.append("has__appeal_scope_regex")
-    if "has__assumed_intention_regex" in df_out.columns:
-        extra_cols.append("has__assumed_intention_regex")
-
-    cols_to_check = [c for c in needle_cols if c in df_out.columns] + extra_cols
-
-    df_out["has__any_needle"] = (
-        df_out[cols_to_check]
-        .fillna(False)
-        .any(axis=1)
-    )
+    if cols_to_check:
+        df_out["has__any_needle"] = df_out[cols_to_check].fillna(False).any(axis=1)
+    else:
+        df_out["has__any_needle"] = False
 
     master_path = cfg.matches_root / cfg.master_csv_name
     df_out.to_csv(master_path, index=False, quoting=1)  # csv.QUOTE_ALL = 1
     print(f"[csv] Wrote single master CSV: {master_path}")
 
-    # 4) Optional: print a quick error preview
     if not df_err.empty:
         print("\n[warn] Some PDFs failed parsing/opening. First 10 errors:")
         cols = [c for c in ["path", "error_msg"] if c in df_err.columns]
@@ -581,46 +549,43 @@ def run_corpus_builder(
 
 
 # =========================================================
-# CLI (optional, but useful)
+# CLI HELPERS
 # =========================================================
 
-def _load_regex_from_file(path: Optional[str]) -> Optional[Pattern[str]]:
+def _compile_regex_from_spec(spec: dict[str, Any]) -> Pattern[str]:
+    flags = 0
+    for f in spec.get("flags", []):
+        fu = str(f).upper().strip()
+        if fu == "IGNORECASE":
+            flags |= re.IGNORECASE
+        elif fu == "VERBOSE":
+            flags |= re.VERBOSE
+        elif fu == "MULTILINE":
+            flags |= re.MULTILINE
+        elif fu == "DOTALL":
+            flags |= re.DOTALL
+
+    return re.compile(spec["pattern"], flags)
+
+
+def _load_regex_buckets_from_json(path: Optional[str]) -> dict[str, Pattern[str]]:
     """
-    Loads a regex pattern from a text file.
-    File can be raw regex, or JSON {"pattern": "...", "flags": ["IGNORECASE","VERBOSE"]}.
+    Load regex buckets from JSON file shaped like:
+    {
+      "bucket_name": {"pattern": "...", "flags": ["IGNORECASE", "VERBOSE"]},
+      ...
+    }
     """
     if not path:
-        return None
+        return {}
 
     p = Path(path).expanduser().resolve()
-    raw = p.read_text(encoding="utf-8").strip()
+    obj = json.loads(p.read_text(encoding="utf-8"))
 
-    # JSON mode
-    if raw.startswith("{"):
-        obj = json.loads(raw)
-        pattern = obj["pattern"]
-        flags_list = obj.get("flags", [])
-        flags = 0
-        for f in flags_list:
-            f = f.upper().strip()
-            if f == "IGNORECASE":
-                import re
-                flags |= re.IGNORECASE
-            elif f == "VERBOSE":
-                import re
-                flags |= re.VERBOSE
-            elif f == "MULTILINE":
-                import re
-                flags |= re.MULTILINE
-            elif f == "DOTALL":
-                import re
-                flags |= re.DOTALL
-        import re
-        return re.compile(pattern, flags)
-
-    # raw regex mode (default ignorecase+verbose is NOT assumed)
-    import re
-    return re.compile(raw)
+    out: dict[str, Pattern[str]] = {}
+    for bucket_name, spec in obj.items():
+        out[bucket_name] = _compile_regex_from_spec(spec)
+    return out
 
 
 def main():
@@ -630,9 +595,7 @@ def main():
 
     ap.add_argument("--needles-all", action="append", default=[], help="Gate needles: ALL must appear (repeatable).")
     ap.add_argument("--needles-any", action="append", default=[], help="Bucket needles: ANY may appear (repeatable).")
-
-    ap.add_argument("--appeal-scope-regex-file", type=str, default=None, help="Path to regex file (raw or JSON).")
-    ap.add_argument("--assumed-intention-regex-file", type=str, default=None, help="Path to regex file (raw or JSON).")
+    ap.add_argument("--regex-buckets-json", type=str, default=None, help="Path to JSON file containing regex bucket specs.")
 
     # optional overrides
     ap.add_argument("--min-pages", type=int, default=None)
@@ -644,8 +607,7 @@ def main():
 
     args = ap.parse_args()
 
-    appeal_re = _load_regex_from_file(args.appeal_scope_regex_file)
-    intent_re = _load_regex_from_file(args.assumed_intention_regex_file)
+    regex_buckets = _load_regex_buckets_from_json(args.regex_buckets_json)
 
     overrides: dict[str, Any] = {}
     if args.min_pages is not None:
@@ -666,8 +628,8 @@ def main():
         matches_root=Path(args.matches_root),
         needles_all=args.needles_all,
         needles_any=args.needles_any,
-        appeal_scope_regex=appeal_re,
-        assumed_intention_regex=intent_re,
+        regex_buckets=regex_buckets,
+        regex_folder_map=None,
         cfg_overrides=overrides or None,
     )
 
