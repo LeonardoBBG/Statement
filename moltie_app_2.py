@@ -9,15 +9,16 @@ import pandas as pd
 import streamlit as st
 
 # ==========================================================
-# MOLTIE RUNNER APP (DUAL-MODE / UX-IMPROVED / RESUME-FIXED)
+# MOLTIE RUNNER APP (DUAL-MODE / PDF-FIRST / RESUME-FIXED)
 # - loads grouped_jobs_df from disk
 # - supports offensive / defensive precedent universes
 # - lets user select jobs by row_id + precedent_mode
 # - shows dynamic output path
 # - optional execution with resume mode
-# - FIXED resume logic at atomic level
-# - FIXED CSV parsing for nested columns
-# - FIXED progress to be atom-based
+# - resume logic at atomic level
+# - CSV parsing for nested columns
+# - execution grouped by PDF within the selected row_ids only
+# - progress bar tracks PDFs, not atoms
 # ==========================================================
 
 # -------------------------
@@ -83,13 +84,11 @@ def _parse_maybe_jsonlike(x):
     if not s:
         return None
 
-    # Try JSON
     try:
         return json.loads(s)
     except Exception:
         pass
 
-    # Try Python literal syntax
     try:
         import ast
         return ast.literal_eval(s)
@@ -158,16 +157,13 @@ def load_grouped_jobs(path: str) -> pd.DataFrame:
     else:
         raise ValueError("Unsupported file type. Use .parquet or .csv")
 
-    # Parse maybe-stringified nested columns
     for col in ["matched_needles", "x_tests"]:
         if col in df.columns:
             df[col] = df[col].apply(_parse_maybe_jsonlike)
 
-    # matched_needles should be list-like
     if "matched_needles" in df.columns:
         df["matched_needles"] = df["matched_needles"].apply(as_list)
 
-    # x_tests must be list[dict]
     if "x_tests" in df.columns:
         def _normalize_x_tests(x):
             vals = as_list(x)
@@ -179,7 +175,6 @@ def load_grouped_jobs(path: str) -> pd.DataFrame:
 
         df["x_tests"] = df["x_tests"].apply(_normalize_x_tests)
 
-    # Backward compatibility
     if "precedent_mode" not in df.columns:
         df["precedent_mode"] = "unknown"
 
@@ -310,11 +305,6 @@ def load_completed_keys(jsonl_path: Path) -> Set[Tuple[str, str, str, str, str]]
     """
     Read an existing JSONL and return the set of completed atomic keys:
     (precedent_mode, row_id, y_row_id, et_path, x_key)
-
-    Only rows that include x_key can be resumably matched.
-    This supports both:
-    - old runs with atomic rows
-    - new runs with per-atom error rows
     """
     completed = set()
 
@@ -389,11 +379,33 @@ def flatten_x_tests_for_preview(plan_jobs: pd.DataFrame, max_rows: int = 300) ->
     return pd.DataFrame(rows)
 
 
-def iter_atomic_tasks(plan_jobs: pd.DataFrame):
+def build_pdf_task_groups(plan_jobs: pd.DataFrame) -> List[dict]:
     """
-    Yield one atomic task at a time.
-    This is the true execution unit for progress and resume.
+    Build PDF-first task groups from the selected jobs only.
+
+    Output shape:
+    [
+        {
+            "pdf_path": Path(...),
+            "tasks": [
+                {
+                    "job_i": int,
+                    "precedent_mode": str,
+                    "row_id": ...,
+                    "y_row_id": ...,
+                    "match_mode": ...,
+                    "matched_needles": [...],
+                    "x_key": ...,
+                    "x_name": ...,
+                },
+                ...
+            ]
+        },
+        ...
+    ]
     """
+    groups = {}
+
     for job_i, (_, job) in enumerate(plan_jobs.iterrows()):
         row_id = job.get("row_id")
         y_row_id = job.get("y_row_id")
@@ -402,40 +414,31 @@ def iter_atomic_tasks(plan_jobs: pd.DataFrame):
         matched_needles = as_list(job.get("matched_needles"))
         pdf_path = Path(str(job.get("et_path")))
 
+        key = str(pdf_path)
+        if key not in groups:
+            groups[key] = {
+                "pdf_path": pdf_path,
+                "tasks": [],
+            }
+
         for t in as_list(job.get("x_tests")):
             if not isinstance(t, dict):
                 continue
 
-            x_key = t.get("x_key")
-            x_name = t.get("x_name", x_key)
+            groups[key]["tasks"].append(
+                {
+                    "job_i": int(job_i),
+                    "precedent_mode": precedent_mode,
+                    "row_id": row_id,
+                    "y_row_id": y_row_id,
+                    "match_mode": match_mode,
+                    "matched_needles": matched_needles,
+                    "x_key": t.get("x_key"),
+                    "x_name": t.get("x_name", t.get("x_key")),
+                }
+            )
 
-            yield {
-                "job_i": int(job_i),
-                "precedent_mode": precedent_mode,
-                "row_id": row_id,
-                "y_row_id": y_row_id,
-                "match_mode": match_mode,
-                "matched_needles": matched_needles,
-                "pdf_path": pdf_path,
-                "x_key": x_key,
-                "x_name": x_name,
-                "x_test": t,
-            }
-
-
-def filter_remaining_atomic_tasks(tasks: List[dict], completed_keys: Set[Tuple[str, str, str, str, str]]) -> List[dict]:
-    out = []
-    for task in tasks:
-        resume_key = make_resume_key(
-            precedent_mode=task.get("precedent_mode"),
-            row_id=task.get("row_id"),
-            y_row_id=task.get("y_row_id"),
-            et_path=str(task.get("pdf_path")),
-            x_key=task.get("x_key"),
-        )
-        if resume_key not in completed_keys:
-            out.append(task)
-    return out
+    return list(groups.values())
 
 
 # ==========================================================
@@ -539,7 +542,6 @@ if missing:
     st.error(f"grouped_jobs_df missing columns: {sorted(missing)}")
     st.stop()
 
-# Normalize mode strings
 jobs_df["precedent_mode"] = jobs_df["precedent_mode"].astype(str).str.strip().replace("", "unknown")
 jobs_df["match_mode"] = jobs_df["match_mode"].astype(str).str.strip().replace("", "unknown")
 
@@ -657,20 +659,49 @@ else:
     completed_keys = set()
     out_path = fresh_out_path
 
-all_atomic_tasks = list(iter_atomic_tasks(plan_jobs))
-remaining_atomic_tasks = filter_remaining_atomic_tasks(all_atomic_tasks, completed_keys)
-remaining_atoms = len(remaining_atomic_tasks)
+all_pdf_groups = build_pdf_task_groups(plan_jobs)
+
+remaining_pdf_groups = []
+remaining_atoms = 0
+
+for group in all_pdf_groups:
+    pdf_path = group["pdf_path"]
+    remaining_tasks = []
+
+    for task in group["tasks"]:
+        resume_key = make_resume_key(
+            precedent_mode=task.get("precedent_mode"),
+            row_id=task.get("row_id"),
+            y_row_id=task.get("y_row_id"),
+            et_path=str(pdf_path),
+            x_key=task.get("x_key"),
+        )
+        if resume_key not in completed_keys:
+            remaining_tasks.append(task)
+
+    if remaining_tasks:
+        remaining_pdf_groups.append(
+            {
+                "pdf_path": pdf_path,
+                "tasks": remaining_tasks,
+            }
+        )
+        remaining_atoms += len(remaining_tasks)
+
+planned_pdfs = len(all_pdf_groups)
+remaining_pdfs = len(remaining_pdf_groups)
 
 # -------------------------
 # Plan summary
 # -------------------------
 st.subheader("Plan summary")
 
-s1, s2, s3, s4 = st.columns(4)
+s1, s2, s3, s4, s5 = st.columns(5)
 s1.metric("Selected jobs", len(plan_jobs))
 s2.metric("Selected PDFs", plan_jobs["et_path"].nunique() if len(plan_jobs) else 0)
 s3.metric("Planned atoms", planned_atom_count)
 s4.metric("Remaining atoms", remaining_atoms)
+s5.metric("Remaining PDFs", remaining_pdfs)
 
 mode_counts = (
     plan_jobs.groupby("precedent_mode").size().rename("jobs").reset_index()
@@ -696,6 +727,7 @@ if RESUME_MODE:
         f"- Completed atoms detected: **{len(completed_keys)}**\n"
         f"- Planned atoms in current selection: **{planned_atom_count}**\n"
         f"- Remaining atoms to run: **{remaining_atoms}**\n"
+        f"- Remaining PDFs to run: **{remaining_pdfs}**\n"
         f"- Output target: `{out_path}`"
     )
 else:
@@ -803,124 +835,171 @@ if run_clicked:
     n_ok = 0
     n_neg = 0
     n_err = 0
-    n_skip = 0  # should stay 0 during actual run because remaining_atomic_tasks is prefiltered
+    n_skip = 0
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    file_mode = "a" if RESUME_MODE and WRITE_BACK_TO_SAME_FILE else "w"
 
-    prog = st.progress(0, text="Running atoms…")
+    prog = st.progress(0, text="Running PDFs…")
     status = st.empty()
     live_counts = st.empty()
 
-    total_atoms = len(remaining_atomic_tasks)
-    done_atoms = 0
+    total_pdfs = len(remaining_pdf_groups)
+    done_pdfs = 0
 
-    with out_path.open("a", encoding="utf-8") as f:
-        for task in remaining_atomic_tasks:
-            job_i = task["job_i"]
-            precedent_mode = task["precedent_mode"]
-            row_id = task["row_id"]
-            y_row_id = str(task["y_row_id"])
-            match_mode = task["match_mode"]
-            matched_needles = task["matched_needles"]
-            pdf_path = task["pdf_path"]
-            x_key = task["x_key"]
-            x_name = task["x_name"]
-
-            resume_key = make_resume_key(
-                precedent_mode=precedent_mode,
-                row_id=row_id,
-                y_row_id=y_row_id,
-                et_path=str(pdf_path),
-                x_key=x_key,
-            )
+    with out_path.open(file_mode, encoding="utf-8") as f:
+        for group in remaining_pdf_groups:
+            pdf_path = group["pdf_path"]
+            pdf_tasks = group["tasks"]
 
             prog.progress(
-                int((done_atoms / max(total_atoms, 1)) * 100),
-                text=f"Atom {done_atoms + 1}/{total_atoms}",
+                int((done_pdfs / max(total_pdfs, 1)) * 100),
+                text=f"PDF {done_pdfs + 1}/{total_pdfs}",
             )
 
             status.write(
-                f"Running row_id={row_id} | precedent_mode={precedent_mode} | "
-                f"match_mode={match_mode} | x_key={x_key} | pdf={pdf_path.name}"
+                f"Running pdf={pdf_path.name} | pending tasks in PDF={len(pdf_tasks)}"
             )
 
             try:
-                if y_row_id not in rows:
-                    raise KeyError(f"y_row_id not in Y.rows: {y_row_id}")
                 if not pdf_path.exists():
                     raise FileNotFoundError(f"PDF missing: {pdf_path}")
 
-                y_obj = (rows[y_row_id] or {}).get("y") or {}
                 paras = get_paras(pdf_path, loop_mod, paras_cache)
                 doc_id = pdf_path.stem
 
-                merged = qo_mod.merge_indicators_and_excludes(y_obj, [x_key])
-                atom = AtomQuery(
-                    atom_id=x_key,
-                    x_tests=[x_key],
-                    proposition=x_name,
-                    positive_indicators=merged["positive_indicators"],
-                    excludes=merged["excludes"],
-                    keyword_seeds=merged["positive_indicators"],
-                    expansion_terms=[],
-                )
+                for task in pdf_tasks:
+                    job_i = task["job_i"]
+                    precedent_mode = task["precedent_mode"]
+                    row_id = task["row_id"]
+                    y_row_id = str(task["y_row_id"])
+                    match_mode = task["match_mode"]
+                    matched_needles = task["matched_needles"]
+                    x_key = task["x_key"]
+                    x_name = task["x_name"]
 
-                res = run_agent_on_one_doc(doc_id, paras, atom, cfg2, client_cfg)
+                    resume_key = make_resume_key(
+                        precedent_mode=precedent_mode,
+                        row_id=row_id,
+                        y_row_id=y_row_id,
+                        et_path=str(pdf_path),
+                        x_key=x_key,
+                    )
 
-                verdict = safe_to_dict(getattr(res, "verdict", None))
-                negative_exit = safe_to_dict(getattr(res, "negative_exit", None))
-                trace_tail = as_list(getattr(res, "trace", None))[-3:]
+                    try:
+                        if y_row_id not in rows:
+                            raise KeyError(f"y_row_id not in Y.rows: {y_row_id}")
 
-                if verdict:
-                    n_ok += 1
-                else:
-                    n_neg += 1
+                        y_obj = (rows[y_row_id] or {}).get("y") or {}
 
-                row_out = {
-                    "job_i": int(job_i),
-                    "precedent_mode": precedent_mode,
-                    "row_id": row_id,
-                    "y_row_id": y_row_id,
-                    "match_mode": match_mode,
-                    "matched_needles": matched_needles,
-                    "et_path": str(pdf_path),
-                    "doc_id": doc_id,
-                    "x_key": x_key,
-                    "x_name": x_name,
-                    "verdict": verdict,
-                    "negative_exit": negative_exit,
-                    "iters": getattr(res, "iters", None),
-                    "trace_tail": trace_tail,
-                }
-                f.write(json.dumps(row_out, ensure_ascii=False) + "\n")
-                f.flush()
+                        merged = qo_mod.merge_indicators_and_excludes(y_obj, [x_key])
+                        atom = AtomQuery(
+                            atom_id=x_key,
+                            x_tests=[x_key],
+                            proposition=x_name,
+                            positive_indicators=merged["positive_indicators"],
+                            excludes=merged["excludes"],
+                            keyword_seeds=merged["positive_indicators"],
+                            expansion_terms=[],
+                        )
 
-                completed_keys.add(resume_key)
+                        res = run_agent_on_one_doc(doc_id, paras, atom, cfg2, client_cfg)
 
-            except Exception as e_x:
-                n_err += 1
-                err_row = {
-                    "job_i": int(job_i),
-                    "precedent_mode": precedent_mode,
-                    "row_id": row_id,
-                    "y_row_id": y_row_id,
-                    "match_mode": match_mode,
-                    "matched_needles": matched_needles,
-                    "et_path": str(pdf_path),
-                    "doc_id": pdf_path.stem,
-                    "x_key": x_key,
-                    "x_name": x_name,
-                    "error": repr(e_x),
-                }
-                f.write(json.dumps(err_row, ensure_ascii=False) + "\n")
-                f.flush()
+                        verdict = safe_to_dict(getattr(res, "verdict", None))
+                        negative_exit = safe_to_dict(getattr(res, "negative_exit", None))
+                        trace_tail = as_list(getattr(res, "trace", None))[-3:]
 
-                completed_keys.add(resume_key)
+                        if verdict:
+                            n_ok += 1
+                        else:
+                            n_neg += 1
 
-            done_atoms += 1
+                        row_out = {
+                            "job_i": int(job_i),
+                            "precedent_mode": precedent_mode,
+                            "row_id": row_id,
+                            "y_row_id": y_row_id,
+                            "match_mode": match_mode,
+                            "matched_needles": matched_needles,
+                            "et_path": str(pdf_path),
+                            "doc_id": doc_id,
+                            "x_key": x_key,
+                            "x_name": x_name,
+                            "verdict": verdict,
+                            "negative_exit": negative_exit,
+                            "iters": getattr(res, "iters", None),
+                            "trace_tail": trace_tail,
+                        }
+                        f.write(json.dumps(row_out, ensure_ascii=False) + "\n")
+                        f.flush()
+
+                        completed_keys.add(resume_key)
+
+                    except Exception as e_x:
+                        n_err += 1
+                        err_row = {
+                            "job_i": int(job_i),
+                            "precedent_mode": precedent_mode,
+                            "row_id": row_id,
+                            "y_row_id": y_row_id,
+                            "match_mode": match_mode,
+                            "matched_needles": matched_needles,
+                            "et_path": str(pdf_path),
+                            "doc_id": doc_id,
+                            "x_key": x_key,
+                            "x_name": x_name,
+                            "error": repr(e_x),
+                        }
+                        f.write(json.dumps(err_row, ensure_ascii=False) + "\n")
+                        f.flush()
+
+                        completed_keys.add(resume_key)
+
+            except Exception as e_pdf:
+                # PDF-level failure: write one error row per pending task in that PDF
+                for task in pdf_tasks:
+                    job_i = task["job_i"]
+                    precedent_mode = task["precedent_mode"]
+                    row_id = task["row_id"]
+                    y_row_id = str(task["y_row_id"])
+                    match_mode = task["match_mode"]
+                    matched_needles = task["matched_needles"]
+                    x_key = task["x_key"]
+                    x_name = task["x_name"]
+
+                    resume_key = make_resume_key(
+                        precedent_mode=precedent_mode,
+                        row_id=row_id,
+                        y_row_id=y_row_id,
+                        et_path=str(pdf_path),
+                        x_key=x_key,
+                    )
+
+                    n_err += 1
+
+                    err_row = {
+                        "job_i": int(job_i),
+                        "precedent_mode": precedent_mode,
+                        "row_id": row_id,
+                        "y_row_id": y_row_id,
+                        "match_mode": match_mode,
+                        "matched_needles": matched_needles,
+                        "et_path": str(pdf_path),
+                        "doc_id": pdf_path.stem,
+                        "x_key": x_key,
+                        "x_name": x_name,
+                        "error": repr(e_pdf),
+                    }
+                    f.write(json.dumps(err_row, ensure_ascii=False) + "\n")
+                    f.flush()
+
+                    completed_keys.add(resume_key)
+
+            done_pdfs += 1
 
             live_counts.write(
-                f"ok: {n_ok} | negative: {n_neg} | errors: {n_err} | skipped: {n_skip}"
+                f"ok: {n_ok} | negative: {n_neg} | errors: {n_err} | skipped: {n_skip} | "
+                f"pdfs done: {done_pdfs}/{total_pdfs}"
             )
 
     prog.progress(100, text="Done")

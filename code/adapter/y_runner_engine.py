@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -192,7 +193,7 @@ def canonicalize_tag(tag: str, allowed_tags: list[str]) -> str:
 def run_y_spec(ws_text: str, *, y_spec_py: Path, model: str, timeout: int) -> tuple[dict | None, str, str, int]:
     try:
         proc = subprocess.run(
-            ["python", str(y_spec_py), "--model", model],
+            [sys.executable, str(y_spec_py), "--model", model],
             input=ws_text,
             text=True,
             capture_output=True,
@@ -471,10 +472,13 @@ def run_y_pipeline(
 
     Returns: (df_out, y_results, diag_or_none)
     """
-    cfg = YRunnerConfig(**{**cfg.__dict__})
     cfg.out_dir.mkdir(parents=True, exist_ok=True)
 
-    master_freq_path = (cfg.matches_root / cfg.master_csv_name).resolve()
+    master_freq_path = (
+        (cfg.matches_root / cfg.master_csv_name).resolve()
+        if cfg.schema_gate_source == "master_csv"
+        else None
+    )
 
     if cfg.strict_schema_gate:
         if cfg.schema_gate_source == "master_csv":
