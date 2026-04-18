@@ -595,8 +595,9 @@ with controls_left:
     if not key_cols:
         key_cols = ranked_view.columns.tolist()[:8]
 
-    st.dataframe(ranked_view[key_cols], use_container_width=True, height=520, hide_index=True)
-    dataframe_download(ranked_view, "ranked_cases_view.csv", "Download current ranked view")
+    with st.expander("Ranked cases table", expanded=False):
+        st.dataframe(ranked_view[key_cols], use_container_width=True, height=520, hide_index=True)
+        dataframe_download(ranked_view, "ranked_cases_view.csv", "Download current ranked view")
 
 with controls_right:
     review_row = st.selectbox(
@@ -616,10 +617,6 @@ with controls_right:
     with k4:
         st.metric("Anchor sum", pretty_num(selected.get("anchor_sum"), 0))
 
-    st.markdown("<span class='badge-info'>Selected case</span>", unsafe_allow_html=True)
-    meta_cols = [c for c in ["doc_id", "et_filename", "et_path", "x_weighted_score", "precedent_avg", "precedent_sum", "x_count_sum", "confidence_avg", "anchor_sum", "n_matches", "x_per_match"] if c in ranked_cases.columns]
-    meta_df = pd.DataFrame({"field": meta_cols, "value": [selected.get(c) for c in meta_cols]})
-    st.dataframe(meta_df, use_container_width=True, hide_index=True, height=285)
 
 review_left, review_right = st.columns([1.05, 1.95])
 with review_left:
