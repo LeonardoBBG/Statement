@@ -643,6 +643,7 @@ def run_agent_on_one_doc(
     best_quality = -1
     best_score = -1
     plateau = 0
+    para_token_cache: Dict[str, Set[str]] = {}
 
     # Track visited windows precisely (start,end)
     visited_windows: Set[Tuple[int, int]] = set()
@@ -720,6 +721,7 @@ def run_agent_on_one_doc(
             visited_windows=visited_windows,
             visited_starts=visited_starts,
             ensure_coverage=True,
+            para_token_cache=para_token_cache,
         )
 
         if len(rr.paras or []) == 0:

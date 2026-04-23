@@ -22,6 +22,13 @@ def _para_hits(p: Dict[str, str], seed_tokens: Set[str]) -> int:
     tks = set(tokenize(p.get("text", "")))
     return len(seed_tokens.intersection(tks))
 
+
+def _para_cache_key(idx: int, p: Dict[str, str]) -> str:
+    pid = str((p or {}).get("para_id") or "").strip()
+    if pid:
+        return pid
+    return f"idx:{idx}"
+
 def _maybe_rechunk_single_blob_paras(
     paras: List[Dict[str, str]],
     *,
@@ -78,8 +85,6 @@ def _maybe_rechunk_single_blob_paras(
     return [{"para_id": f"p{i:05d}", "text": p} for i, p in enumerate(out, start=1)]
 
 
-from typing import Any, Dict, List, Optional, Set, Tuple
-
 def retrieve_windowed_evidence(
     doc_id: str,
     paras: List[Dict[str, str]],
@@ -94,6 +99,7 @@ def retrieve_windowed_evidence(
     visited_windows: Optional[Set[Tuple[int, int]]] = None,
     visited_starts: Optional[Set[int]] = None,
     ensure_coverage: bool = True,
+    para_token_cache: Optional[Dict[str, Set[str]]] = None,
 ) -> RetrievalResult:
     """
     Sliding-window evidence retrieval (coverage-aware, iteration-aware).
@@ -134,6 +140,7 @@ def retrieve_windowed_evidence(
 
     # --- visited structures ---
     visited_windows = set(visited_windows or set())
+    para_token_cache = para_token_cache if para_token_cache is not None else {}
 
     # If caller still passes visited_starts, treat those as "visited any span with that start".
     visited_starts = set(visited_starts or set())
@@ -145,8 +152,16 @@ def retrieve_windowed_evidence(
             return True
         return False
 
-    # Precompute per-para hits once (cheap + reuse)
-    hits_by_idx = [_para_hits(paras[i], seed_tokens) for i in range(n)]
+    # Precompute per-para tokens once per doc and reuse across iterations.
+    hits_by_idx: List[int] = []
+    for i in range(n):
+        p = paras[i]
+        cache_key = _para_cache_key(i, p)
+        tks = para_token_cache.get(cache_key)
+        if tks is None:
+            tks = set(tokenize(p.get("text", "")))
+            para_token_cache[cache_key] = tks
+        hits_by_idx.append(len(seed_tokens.intersection(tks)))
     total_matching_paras = sum(1 for h in hits_by_idx if h >= min_hits)
 
     # Build explicit window starts so we always include final (n - window_size)
