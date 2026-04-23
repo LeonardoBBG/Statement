@@ -36,6 +36,10 @@ CODE_ROOT = (REPO_ROOT / "code").resolve()
 ADAPTER_ROOT = (CODE_ROOT / "adapter").resolve()
 DEFAULT_Y_PATH = REPO_ROOT / "output" / "Y_inferred.json"
 DEFAULT_Y_MANUAL_PATH = REPO_ROOT / "output" / "Y_manual.json"
+DEFAULT_Y_BY_MODE = {
+    "offensive": REPO_ROOT / "output" / "Y_inferred_offensive.json",
+    "defensive": REPO_ROOT / "output" / "Y_inferred_defensive.json",
+}
 BASE_MATCHES_ROOT = Path("/media/hello/Vault/Tribunals/_Matches").resolve()
 ET_INPUT_ROOT = Path("/media/hello/Vault/Tribunals/ET_Cases").resolve()
 NEEDLES_INPUT_ROOT = (REPO_ROOT / "input" / "needles").resolve()
@@ -65,7 +69,7 @@ WORKFLOW_CONFIG = {
     "CSV Bridge": {
         "grouped_path": DEFAULT_CSV_GROUPED_JOBS_PATH,
         "y_path": DEFAULT_Y_PATH,
-        "caption": "Legacy CSV bridge: ET matches + enhanced CSV + row-derived Y.",
+        "caption": "Legacy CSV bridge: ET matches + enhanced CSV + mode-specific row-derived Y.",
     },
     "Manual JSON": {
         "grouped_path": DEFAULT_MANUAL_GROUPED_JOBS_PATH,
@@ -581,12 +585,15 @@ def _extract_et_paths(row_obj: dict, payload: dict) -> list[str]:
 def create_grouped_jobs_from_csv_bridge(
     *,
     selected_modes: list[str],
-    y_path: Path,
+    y_path_by_mode: dict[str, Path],
     out_path: Path,
 ) -> pd.DataFrame:
     grouped_frames = []
 
     for mode in selected_modes:
+        if mode not in y_path_by_mode:
+            raise KeyError(f"Missing Y path for mode: {mode}")
+        y_path = y_path_by_mode[mode]
         cfg = NeedleBridgeConfig(
             matches_index_csv=DEFAULT_MATCHES_INDEX_BY_MODE[mode],
             match_frequencies_csv=None,
@@ -607,6 +614,7 @@ def create_grouped_jobs_from_csv_bridge(
 
         grouped_jobs_df = _build_grouped_jobs(run_plan_df)
         grouped_jobs_df["precedent_mode"] = mode
+        grouped_jobs_df["y_source_path"] = str(y_path)
         grouped_frames.append(grouped_jobs_df)
 
     combined_df = pd.concat(grouped_frames, ignore_index=True) if grouped_frames else pd.DataFrame()
@@ -655,6 +663,7 @@ def create_grouped_jobs_from_manual_y(
                     "match_mode": str(match_mode),
                     "matched_needles": as_list(matched_needles),
                     "x_tests": x_tests,
+                    "y_source_path": str(y_manual_path),
                 }
             )
 
@@ -730,7 +739,7 @@ def build_ws_enrichment(mode: str, model: str = DEFAULT_MODEL) -> pd.DataFrame:
         text_col=DEFAULT_WS_TEXT_COL,
         out_dir=(REPO_ROOT / "output").resolve(),
         out_enhanced_csv=DEFAULT_WS_ENHANCED_BY_MODE[mode],
-        out_y_json=DEFAULT_Y_PATH,
+        out_y_json=DEFAULT_Y_BY_MODE[mode],
         y_spec_py=DEFAULT_Y_SPEC_PY,
         model=model,
         debug=False,
@@ -752,6 +761,11 @@ def build_ws_enrichment(mode: str, model: str = DEFAULT_MODEL) -> pd.DataFrame:
         canonicalize_fn=yr_mod.canonicalize_tag,
     )
     return df_out
+
+
+@st.cache_data(show_spinner=False)
+def load_y_rows_by_path(path: str) -> dict:
+    return load_y_rows(path)
 
 
 def make_moltie_modules():
@@ -896,6 +910,7 @@ def flatten_x_tests_for_preview(plan_jobs: pd.DataFrame, max_rows: int = 300) ->
         match_mode = job.get("match_mode")
         et_path = job.get("et_path")
         matched_needles = as_list(job.get("matched_needles"))
+        y_source_path = job.get("y_source_path")
         for t in as_list(job.get("x_tests")):
             if not isinstance(t, dict):
                 continue
@@ -910,6 +925,7 @@ def flatten_x_tests_for_preview(plan_jobs: pd.DataFrame, max_rows: int = 300) ->
                     "x_scope": t.get("x_scope", "GENERAL"),
                     "n_matched_needles": len(matched_needles),
                     "et_path": et_path,
+                    "y_source_path": y_source_path,
                 }
             )
             if len(rows) >= max_rows:
@@ -953,6 +969,7 @@ def build_pdf_task_groups(plan_jobs: pd.DataFrame) -> List[dict]:
         match_mode = job.get("match_mode")
         matched_needles = as_list(job.get("matched_needles"))
         pdf_path = Path(str(job.get("et_path")))
+        y_source_path = str(job.get("y_source_path") or "").strip()
 
         key = str(pdf_path)
         if key not in groups:
@@ -975,6 +992,7 @@ def build_pdf_task_groups(plan_jobs: pd.DataFrame) -> List[dict]:
                     "matched_needles": matched_needles,
                     "x_key": t.get("x_key"),
                     "x_name": t.get("x_name", t.get("x_key")),
+                    "y_source_path": y_source_path,
                 }
             )
 
@@ -1020,22 +1038,34 @@ workflow_cfg = WORKFLOW_CONFIG[selected_workflow]
 active_grouped_path = Path(st.session_state["grouped_jobs_path"])
 active_y_source_path = Path(st.session_state["selected_y_path"])
 corpus_ready = active_grouped_path.exists()
+y_summary_label = "mode-specific from corpus" if selected_workflow == "CSV Bridge" else active_y_source_path.name
 
 summary_a, summary_b, summary_c = st.columns([1.1, 1.2, 1.2])
 summary_a.metric("Active Workflow", selected_workflow)
 summary_b.metric("Grouped Corpus", active_grouped_path.name)
-summary_c.metric("Y Source", active_y_source_path.name)
+summary_c.metric("Y Source", y_summary_label)
 st.caption(workflow_cfg["caption"])
 
 with st.expander("Active Paths", expanded=False):
-    st.code(
-        "\n".join(
-            [
-                f"Grouped parquet: {active_grouped_path}",
-                f"Y source: {active_y_source_path}",
-            ]
+    if selected_workflow == "CSV Bridge":
+        st.code(
+            "\n".join(
+                [
+                    f"Grouped parquet: {active_grouped_path}",
+                    f"Offensive Y: {DEFAULT_Y_BY_MODE['offensive']}",
+                    f"Defensive Y: {DEFAULT_Y_BY_MODE['defensive']}",
+                ]
+            )
         )
-    )
+    else:
+        st.code(
+            "\n".join(
+                [
+                    f"Grouped parquet: {active_grouped_path}",
+                    f"Y source: {active_y_source_path}",
+                ]
+            )
+        )
 
 if corpus_ready:
     st.success(
@@ -1121,8 +1151,9 @@ with st.expander("Prepare Inputs And Create Corpus", expanded=not corpus_ready):
         )
         csv_y_path_raw = create_left.text_input(
             "Row-derived Y JSON",
-            value=str(WORKFLOW_CONFIG["CSV Bridge"]["y_path"]),
-            help="Usually output/Y_inferred.json.",
+            value="mode-specific automatic",
+            disabled=True,
+            help="CSV Bridge now uses output/Y_inferred_offensive.json and output/Y_inferred_defensive.json automatically.",
         ).strip()
         csv_out_path_raw = create_right.text_input(
             "Output grouped parquet",
@@ -1144,11 +1175,11 @@ with st.expander("Prepare Inputs And Create Corpus", expanded=not corpus_ready):
             try:
                 grouped_df = create_grouped_jobs_from_csv_bridge(
                     selected_modes=csv_modes,
-                    y_path=Path(csv_y_path_raw).expanduser().resolve(),
+                    y_path_by_mode={mode: DEFAULT_Y_BY_MODE[mode].resolve() for mode in csv_modes},
                     out_path=Path(csv_out_path_raw).expanduser().resolve(),
                 )
                 st.session_state["grouped_jobs_path"] = str(Path(csv_out_path_raw).expanduser().resolve())
-                st.session_state["selected_y_path"] = str(Path(csv_y_path_raw).expanduser().resolve())
+                st.session_state["selected_y_path"] = str(DEFAULT_Y_PATH)
                 st.success(f"Corpus created: {csv_out_path_raw}")
                 st.dataframe(grouped_df.head(20), use_container_width=True, height=260)
             except Exception as e:
@@ -1195,7 +1226,7 @@ with st.sidebar:
     y_path = st.text_input(
         "Y source JSON",
         key="selected_y_path",
-        help="Used at execution time to recover the Y object for each y_row_id.",
+        help="Fallback Y source for corpora without embedded y_source_path. CSV Bridge corpora use mode-specific Y paths embedded in the parquet.",
     )
     out_dir = Path(
         st.text_input(
@@ -1524,8 +1555,6 @@ if run_clicked:
         st.code(str(out_path))
         st.stop()
 
-    rows = load_y_rows(y_path)
-
     (
         RunConfig,
         AtomQuery,
@@ -1623,6 +1652,7 @@ if run_clicked:
                     matched_needles = task["matched_needles"]
                     x_key = task["x_key"]
                     x_name = task["x_name"]
+                    task_y_source_path = task.get("y_source_path") or y_path
 
                     resume_key = make_resume_key(
                         precedent_mode=precedent_mode,
@@ -1633,10 +1663,12 @@ if run_clicked:
                     )
 
                     try:
-                        if y_row_id not in rows:
+                        rows_for_task = load_y_rows_by_path(task_y_source_path)
+
+                        if y_row_id not in rows_for_task:
                             raise KeyError(f"y_row_id not in Y.rows: {y_row_id}")
 
-                        y_obj = (rows[y_row_id] or {}).get("y") or {}
+                        y_obj = (rows_for_task[y_row_id] or {}).get("y") or {}
 
                         merged = qo_mod.merge_indicators_and_excludes(y_obj, [x_key])
                         atom = AtomQuery(
@@ -1671,6 +1703,7 @@ if run_clicked:
                             "doc_id": doc_id,
                             "x_key": x_key,
                             "x_name": x_name,
+                            "y_source_path": str(task_y_source_path),
                             "verdict": verdict,
                             "negative_exit": negative_exit,
                             "iters": getattr(res, "iters", None),
@@ -1694,6 +1727,7 @@ if run_clicked:
                             "doc_id": doc_id,
                             "x_key": x_key,
                             "x_name": x_name,
+                            "y_source_path": str(task_y_source_path),
                             "error": repr(e_x),
                         }
                         f.write(json.dumps(err_row, ensure_ascii=False) + "\n")
@@ -1712,6 +1746,7 @@ if run_clicked:
                     matched_needles = task["matched_needles"]
                     x_key = task["x_key"]
                     x_name = task["x_name"]
+                    task_y_source_path = task.get("y_source_path") or y_path
 
                     resume_key = make_resume_key(
                         precedent_mode=precedent_mode,
@@ -1734,6 +1769,7 @@ if run_clicked:
                         "doc_id": pdf_path.stem,
                         "x_key": x_key,
                         "x_name": x_name,
+                        "y_source_path": str(task_y_source_path),
                         "error": repr(e_pdf),
                     }
                     f.write(json.dumps(err_row, ensure_ascii=False) + "\n")
