@@ -506,16 +506,15 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
     obj["precedent_score"] = _clamp_int(obj.get("precedent_score", 0), 0, 100, 0)
     obj["confidence"] = _clamp_int(obj.get("confidence", 0), 0, 100, 0)
 
-    # matched_X: list[str] but ONLY X1..X5
+    # matched_X: list[str]
     mx = obj.get("matched_X", [])
     if not isinstance(mx, list):
         mx = []
 
-    allowed_mx = {"X1", "X2", "X3", "X4", "X5"}
     mx2: List[str] = []
     for x in mx:
         s = _clean_str(x).upper()
-        if s in allowed_mx:
+        if s.startswith("X"):
             mx2.append(s)
 
     # de-dup preserve order

@@ -124,7 +124,12 @@ def retrieve_windowed_evidence(
         )
 
     # --- build seed tokens ---
-    seed_text = " ".join([atom.proposition] + list(atom.positive_indicators or []))
+    # Include refinement-driven recall terms so later iterations meaningfully alter retrieval.
+    seed_parts = [atom.proposition]
+    seed_parts.extend(list(atom.positive_indicators or []))
+    seed_parts.extend(list(getattr(atom, "keyword_seeds", []) or []))
+    seed_parts.extend(list(getattr(atom, "expansion_terms", []) or []))
+    seed_text = " ".join([s for s in seed_parts if isinstance(s, str) and s.strip()])
     seed_tokens = set(tokenize(seed_text))
 
     # --- visited structures ---

@@ -11,16 +11,13 @@ _VERDICT_SCHEMA_TEXT = r"""
 Return STRICT JSON ONLY. No markdown. No commentary. One JSON object.
 
 ALLOWED KEYS ONLY (exactly these keys, no extras):
-atom_id, doc_id, relevant, matched_X, precedent_score, confidence,
-anchors, use_mode, proposition_winner, appeal_outcome, successful_party,
-distinguishers, note, retrieval_score, retrieval_method
+relevant, precedent_score, confidence, anchors, use_mode,
+proposition_winner, appeal_outcome, successful_party, distinguishers,
+note, retrieval_score, retrieval_method
 
 Schema:
 {
-  "atom_id": "string",
-  "doc_id": "string",
   "relevant": true|false,
-  "matched_X": ["..."],
   "precedent_score": 0-100,
   "confidence": 0-100,
   "anchors": [
@@ -57,11 +54,6 @@ COPY PROTOCOL (MANDATORY):
 - Do NOT paraphrase. Do NOT retype from memory. Do NOT change apostrophes/quotes.
 - The quote MUST appear as a contiguous substring in that paragraph.
 - If you cannot comply, set relevant=false and anchors=[].
-- matched_X MUST be a subset of Input JSON atom.x_tests.
-- If relevant=true, matched_X MUST contain atom.atom_id.
-- If unsure, use [].
-- atom_id MUST equal Input JSON atom.atom_id exactly.
-- doc_id MUST equal Input JSON doc_id exactly.
 """
 
 
@@ -118,10 +110,7 @@ def build_verifier_prompt(
     }
 
     verdict_template = {
-        "atom_id": atom.atom_id,
-        "doc_id": doc_id,
         "relevant": False,
-        "matched_X": [],
         "precedent_score": 0,
         "confidence": 0,
         "anchors": [],
@@ -138,11 +127,6 @@ def build_verifier_prompt(
     # >>> NEW: put the most important constraints at the very top (models follow the top best)
     top_rules = (
         "TOP RULES (ABSOLUTE):\n"
-        f"- atom_id MUST be '{atom.atom_id}' exactly.\n"
-        f"- doc_id MUST be '{doc_id}' exactly.\n"
-        f"- matched_X MUST be a subset of atom.x_tests={atom.x_tests}. "
-        f"If relevant=true, matched_X MUST include '{atom.atom_id}'.\n"
-        "- NEVER output more than 3 matched_X items. If unsure, matched_X=[].\n"
         f"- If you cannot provide >= {anchors_required} anchors, set relevant=false and anchors=[].\n"
         f"- allowed_para_ids count = {len(allowed_para_ids)}. Only use those para_ids.\n"
     )
