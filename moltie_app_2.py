@@ -987,8 +987,7 @@ def build_pdf_task_groups(plan_jobs: pd.DataFrame) -> List[dict]:
 st.set_page_config(page_title="Moltie Runner", layout="wide")
 st.title("Moltie Runner")
 st.caption(
-    "Create a grouped corpus from either the legacy CSV bridge or a manual Y JSON, "
-    "then run Moltie with the same downstream execution flow."
+    "Prepare inputs, build the active corpus, then run Moltie against that corpus."
 )
 
 if "grouped_jobs_path" not in st.session_state:
@@ -1005,7 +1004,6 @@ if "workflow_last_applied" not in st.session_state:
     apply_workflow_defaults(st.session_state["active_workflow"])
 
 st.subheader("Workflow")
-st.caption("Select the workflow first. The app will align both corpus generation and corpus consumption to that workflow.")
 
 selected_workflow = st.radio(
     "Workflow",
@@ -1019,163 +1017,180 @@ if st.session_state["workflow_last_applied"] != selected_workflow:
     st.session_state["workflow_last_applied"] = selected_workflow
 
 workflow_cfg = WORKFLOW_CONFIG[selected_workflow]
+active_grouped_path = Path(st.session_state["grouped_jobs_path"])
+active_y_source_path = Path(st.session_state["selected_y_path"])
+corpus_ready = active_grouped_path.exists()
 
-status_left, status_right = st.columns([1, 1])
-status_left.info(
-    f"Active workflow: `{selected_workflow}`\n\n"
-    f"- Grouped parquet: `{st.session_state['grouped_jobs_path']}`\n"
-    f"- Y source: `{st.session_state['selected_y_path']}`"
-)
-status_right.caption(workflow_cfg["caption"])
+summary_a, summary_b, summary_c = st.columns([1.1, 1.2, 1.2])
+summary_a.metric("Active Workflow", selected_workflow)
+summary_b.metric("Grouped Corpus", active_grouped_path.name)
+summary_c.metric("Y Source", active_y_source_path.name)
+st.caption(workflow_cfg["caption"])
 
-st.subheader("Prepare Inputs")
-st.caption("Upstream preparation stays explicit, but it is now connected to this app. Build the required inputs before creating the grouped corpus.")
-
-if selected_workflow == "CSV Bridge":
-    prep_modes = st.multiselect(
-        "Preparation modes",
-        options=["offensive", "defensive"],
-        default=["offensive", "defensive"],
-        help="These control ET harvesting and WS enhancement for the CSV bridge workflow.",
+with st.expander("Active Paths", expanded=False):
+    st.code(
+        "\n".join(
+            [
+                f"Grouped parquet: {active_grouped_path}",
+                f"Y source: {active_y_source_path}",
+            ]
+        )
     )
 
-    prep_left, prep_right = st.columns([1, 1])
-    prep_left.markdown("**CSV Bridge dependencies**")
-    prep_left.caption(f"ET source root: `{ET_INPUT_ROOT}`")
-    prep_left.caption(f"WS source CSV: `{DEFAULT_WS_INPUT_CSV}`")
-
-    for mode in ["offensive", "defensive"]:
-        prep_left.markdown(f"`{mode}`")
-        prep_left.caption(_path_status_line(DEFAULT_NEEDLE_JSON_BY_MODE[mode]))
-        prep_left.caption(_path_status_line(DEFAULT_MATCHES_INDEX_BY_MODE[mode]))
-        prep_left.caption(_path_status_line(DEFAULT_WS_ENHANCED_BY_MODE[mode]))
-        prep_left.caption(_path_status_line(BASE_MATCHES_ROOT / mode / "_tag_spec.json"))
-
-    prep_right.markdown("**Stage actions**")
-    prep_right.caption("1. Harvest ET matches. 2. Enrich WS and build row-derived Y. 3. Create grouped corpus.")
-
-    b1, b2 = prep_right.columns([1, 1])
-    if b1.button("Build ET Matches", key="prep_et_matches"):
-        if not prep_modes:
-            st.error("Select at least one preparation mode.")
-            st.stop()
-        try:
-            for mode in prep_modes:
-                df_matches = build_et_matches(mode)
-                st.success(f"ET matches built for {mode}: {DEFAULT_MATCHES_INDEX_BY_MODE[mode]}")
-                st.dataframe(df_matches.head(10), use_container_width=True, height=220)
-        except Exception as e:
-            st.error(f"Failed to build ET matches: {e}")
-            st.stop()
-
-    if b2.button("Build WS Enhanced + Y", key="prep_ws_enriched"):
-        if not prep_modes:
-            st.error("Select at least one preparation mode.")
-            st.stop()
-        try:
-            for mode in prep_modes:
-                df_ws = build_ws_enrichment(mode, model=DEFAULT_MODEL)
-                st.success(f"WS enriched for {mode}: {DEFAULT_WS_ENHANCED_BY_MODE[mode]}")
-                st.dataframe(df_ws.head(10), use_container_width=True, height=220)
-            st.session_state["selected_y_path"] = str(DEFAULT_Y_PATH)
-        except Exception as e:
-            st.error(f"Failed to build WS enhancement/Y: {e}")
-            st.stop()
+if corpus_ready:
+    st.success(
+        f"Corpus ready for `{selected_workflow}`. Using `{active_grouped_path.name}`. "
+        "No preparation or rebuild is required unless your inputs changed."
+    )
 else:
-    st.info(
-        "Manual JSON workflow does not require ET matches or enhanced WS CSVs. "
-        "The only upstream requirement is a valid manual Y JSON with PDF linkage."
+    st.warning(
+        f"No grouped corpus found for `{selected_workflow}` at `{active_grouped_path}`. "
+        "Prepare inputs and create the corpus below."
     )
-    st.caption(_path_status_line(Path(st.session_state["selected_y_path"])))
 
-st.subheader("Create Corpus")
-st.caption("After input preparation, build the grouped-jobs parquet that the runner will consume.")
+with st.expander("Prepare Inputs And Create Corpus", expanded=not corpus_ready):
+    st.caption("Run only the preparation steps needed for the active workflow.")
 
-create_left, create_right = st.columns([1, 1])
+    if selected_workflow == "CSV Bridge":
+        prep_modes = st.multiselect(
+            "Preparation modes",
+            options=["offensive", "defensive"],
+            default=["offensive", "defensive"],
+            help="These control ET harvesting and WS enhancement for the CSV bridge workflow.",
+        )
 
-if selected_workflow == "CSV Bridge":
-    csv_modes = create_left.multiselect(
-        "Precedent modes",
-        options=["offensive", "defensive"],
-        default=["offensive", "defensive"],
-        help="Build the grouped corpus from the legacy CSV/needle bridge for the selected modes.",
-    )
-    csv_y_path_raw = create_left.text_input(
-        "Row-derived Y JSON",
-        value=str(WORKFLOW_CONFIG["CSV Bridge"]["y_path"]),
-        help="Usually output/Y_inferred.json.",
-    ).strip()
-    csv_out_path_raw = create_right.text_input(
-        "Output grouped parquet",
-        value=str(WORKFLOW_CONFIG["CSV Bridge"]["grouped_path"]),
-        help="This parquet will be loaded by the runner below.",
-    ).strip()
+        prep_actions, prep_status = st.columns([1.1, 1.4])
 
-    with st.expander("CSV Bridge Inputs", expanded=False):
+        prep_actions.markdown("**Stage Actions**")
+        prep_actions.caption("Run the ET harvester first, then WS enrichment if those files are missing.")
+
+        if prep_actions.button("1. Build ET Matches", key="prep_et_matches", use_container_width=True):
+            if not prep_modes:
+                st.error("Select at least one preparation mode.")
+                st.stop()
+            try:
+                for mode in prep_modes:
+                    df_matches = build_et_matches(mode)
+                    st.success(f"ET matches built for {mode}: {DEFAULT_MATCHES_INDEX_BY_MODE[mode]}")
+                    st.dataframe(df_matches.head(10), use_container_width=True, height=220)
+            except Exception as e:
+                st.error(f"Failed to build ET matches: {e}")
+                st.stop()
+
+        if prep_actions.button("2. Build WS Enhanced + Y", key="prep_ws_enriched", use_container_width=True):
+            if not prep_modes:
+                st.error("Select at least one preparation mode.")
+                st.stop()
+            try:
+                for mode in prep_modes:
+                    df_ws = build_ws_enrichment(mode, model=DEFAULT_MODEL)
+                    st.success(f"WS enriched for {mode}: {DEFAULT_WS_ENHANCED_BY_MODE[mode]}")
+                    st.dataframe(df_ws.head(10), use_container_width=True, height=220)
+                st.session_state["selected_y_path"] = str(DEFAULT_Y_PATH)
+            except Exception as e:
+                st.error(f"Failed to build WS enhancement/Y: {e}")
+                st.stop()
+
+        prep_status.markdown("**Dependency Status**")
+        prep_status.caption(f"ET source root: `{ET_INPUT_ROOT}`")
+        prep_status.caption(f"WS source CSV: `{DEFAULT_WS_INPUT_CSV}`")
         for mode in ["offensive", "defensive"]:
-            st.markdown(f"**{mode}**")
-            st.code(str(DEFAULT_MATCHES_INDEX_BY_MODE[mode]))
-            st.code(str(DEFAULT_WS_ENHANCED_BY_MODE[mode]))
+            with prep_status.expander(f"{mode.title()} Inputs", expanded=(mode in prep_modes and not corpus_ready)):
+                prep_status.caption(_path_status_line(DEFAULT_NEEDLE_JSON_BY_MODE[mode]))
+                prep_status.caption(_path_status_line(DEFAULT_MATCHES_INDEX_BY_MODE[mode]))
+                prep_status.caption(_path_status_line(DEFAULT_WS_ENHANCED_BY_MODE[mode]))
+                prep_status.caption(_path_status_line(BASE_MATCHES_ROOT / mode / "_tag_spec.json"))
+    else:
+        info_left, info_right = st.columns([1.1, 1.4])
+        info_left.markdown("**Manual Workflow**")
+        info_left.caption("No ET harvesting or WS enrichment is required here.")
+        info_right.markdown("**Dependency Status**")
+        info_right.caption(_path_status_line(active_y_source_path))
 
-    if st.button("Create Corpus", type="secondary", key="create_corpus_csv"):
-        if not csv_modes:
-            st.error("Select at least one precedent mode.")
-            st.stop()
+    st.subheader("Create Corpus")
+    st.caption("After input preparation, build the grouped-jobs parquet that the runner will consume.")
 
-        try:
-            grouped_df = create_grouped_jobs_from_csv_bridge(
-                selected_modes=csv_modes,
-                y_path=Path(csv_y_path_raw).expanduser().resolve(),
-                out_path=Path(csv_out_path_raw).expanduser().resolve(),
-            )
-            st.session_state["grouped_jobs_path"] = str(Path(csv_out_path_raw).expanduser().resolve())
-            st.session_state["selected_y_path"] = str(Path(csv_y_path_raw).expanduser().resolve())
-            st.success(f"Corpus created: {csv_out_path_raw}")
-            st.dataframe(grouped_df.head(20), use_container_width=True, height=260)
-        except Exception as e:
-            st.error(f"Failed to create CSV bridge corpus: {e}")
-            st.stop()
+    create_left, create_right = st.columns([1, 1])
 
-else:
-    manual_y_path_raw = create_left.text_input(
-        "Manual Y JSON",
-        value=str(WORKFLOW_CONFIG["Manual JSON"]["y_path"]),
-        placeholder="/home/hello/Projects/Statements/output/Y_manual.json",
-        help="Manual Y records must include PDF path(s) via et_path/pdf_path or et_paths/pdf_paths.",
-    ).strip()
-    manual_out_path_raw = create_right.text_input(
-        "Output grouped parquet",
-        value=str(WORKFLOW_CONFIG["Manual JSON"]["grouped_path"]),
-        help="This parquet will be loaded by the runner below.",
-    ).strip()
+    if selected_workflow == "CSV Bridge":
+        csv_modes = create_left.multiselect(
+            "Precedent modes",
+            options=["offensive", "defensive"],
+            default=["offensive", "defensive"],
+            help="Build the grouped corpus from the legacy CSV/needle bridge for the selected modes.",
+        )
+        csv_y_path_raw = create_left.text_input(
+            "Row-derived Y JSON",
+            value=str(WORKFLOW_CONFIG["CSV Bridge"]["y_path"]),
+            help="Usually output/Y_inferred.json.",
+        ).strip()
+        csv_out_path_raw = create_right.text_input(
+            "Output grouped parquet",
+            value=str(WORKFLOW_CONFIG["CSV Bridge"]["grouped_path"]),
+            help="This parquet will be loaded by the runner below.",
+        ).strip()
 
-    st.info(
-        "Manual JSON mode bypasses the input CSV entirely. "
-        "Needles stay unchanged; the manual Y file becomes the Y-side source for the grouped corpus."
-    )
+        with st.expander("Corpus Inputs", expanded=False):
+            for mode in ["offensive", "defensive"]:
+                st.markdown(f"**{mode}**")
+                st.code(str(DEFAULT_MATCHES_INDEX_BY_MODE[mode]))
+                st.code(str(DEFAULT_WS_ENHANCED_BY_MODE[mode]))
 
-    if st.button("Create Corpus", type="secondary", key="create_corpus_manual"):
-        try:
-            grouped_df = create_grouped_jobs_from_manual_y(
-                y_manual_path=Path(manual_y_path_raw).expanduser().resolve(),
-                out_path=Path(manual_out_path_raw).expanduser().resolve(),
-            )
-            st.session_state["grouped_jobs_path"] = str(Path(manual_out_path_raw).expanduser().resolve())
-            st.session_state["selected_y_path"] = str(Path(manual_y_path_raw).expanduser().resolve())
-            st.success(f"Corpus created: {manual_out_path_raw}")
-            st.dataframe(grouped_df.head(20), use_container_width=True, height=260)
-        except Exception as e:
-            st.error(f"Failed to create manual JSON corpus: {e}")
-            st.stop()
+        if st.button("3. Create Corpus", type="secondary", key="create_corpus_csv", use_container_width=True):
+            if not csv_modes:
+                st.error("Select at least one precedent mode.")
+                st.stop()
+
+            try:
+                grouped_df = create_grouped_jobs_from_csv_bridge(
+                    selected_modes=csv_modes,
+                    y_path=Path(csv_y_path_raw).expanduser().resolve(),
+                    out_path=Path(csv_out_path_raw).expanduser().resolve(),
+                )
+                st.session_state["grouped_jobs_path"] = str(Path(csv_out_path_raw).expanduser().resolve())
+                st.session_state["selected_y_path"] = str(Path(csv_y_path_raw).expanduser().resolve())
+                st.success(f"Corpus created: {csv_out_path_raw}")
+                st.dataframe(grouped_df.head(20), use_container_width=True, height=260)
+            except Exception as e:
+                st.error(f"Failed to create CSV bridge corpus: {e}")
+                st.stop()
+    else:
+        manual_y_path_raw = create_left.text_input(
+            "Manual Y JSON",
+            value=str(WORKFLOW_CONFIG["Manual JSON"]["y_path"]),
+            placeholder="/home/hello/Projects/Statements/output/Y_manual.json",
+            help="Manual Y records must include PDF path(s) via et_path/pdf_path or et_paths/pdf_paths.",
+        ).strip()
+        manual_out_path_raw = create_right.text_input(
+            "Output grouped parquet",
+            value=str(WORKFLOW_CONFIG["Manual JSON"]["grouped_path"]),
+            help="This parquet will be loaded by the runner below.",
+        ).strip()
+
+        st.caption("Manual JSON bypasses the input CSV. The manual Y file becomes the Y-side source for this corpus.")
+
+        if st.button("2. Create Corpus", type="secondary", key="create_corpus_manual", use_container_width=True):
+            try:
+                grouped_df = create_grouped_jobs_from_manual_y(
+                    y_manual_path=Path(manual_y_path_raw).expanduser().resolve(),
+                    out_path=Path(manual_out_path_raw).expanduser().resolve(),
+                )
+                st.session_state["grouped_jobs_path"] = str(Path(manual_out_path_raw).expanduser().resolve())
+                st.session_state["selected_y_path"] = str(Path(manual_y_path_raw).expanduser().resolve())
+                st.success(f"Corpus created: {manual_out_path_raw}")
+                st.dataframe(grouped_df.head(20), use_container_width=True, height=260)
+            except Exception as e:
+                st.error(f"Failed to create manual JSON corpus: {e}")
+                st.stop()
 
 st.divider()
 
 with st.sidebar:
-    st.header("Inputs")
+    st.header("Runner Settings")
     grouped_path = st.text_input(
         "Grouped jobs path (.parquet or .csv)",
         key="grouped_jobs_path",
-        help="Prefer the combined grouped jobs file so offensive and defensive jobs can be filtered in-app.",
+        help="Active grouped corpus loaded by the runner.",
     )
     y_path = st.text_input(
         "Y source JSON",
@@ -1188,9 +1203,10 @@ with st.sidebar:
             str(DEFAULT_OUT_DIR),
         )
     )
+    st.caption(f"Workflow: `{selected_workflow}`")
 
     st.divider()
-    st.header("Execution")
+    st.header("Job Filters")
     DEBUG = st.toggle(
         "Debug mode",
         value=False,
