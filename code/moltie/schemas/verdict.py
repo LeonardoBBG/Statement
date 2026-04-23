@@ -4,13 +4,13 @@ from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Literal, Optional
 
 """
-Verdict schema layer: strict contract for LLM outputs.
+Verdict schema layer: strict contract for validated Moltie verdict objects.
 
 Responsibilities:
 - Define the structural shape of a Verdict.
 - Enforce field types, allowed keys, and enum constraints.
 - Enforce cross-field logical rules (e.g., no anchors if relevant=false).
-- Convert raw dict output from the LLM into strongly-typed objects.
+- Convert validated verdict dicts into strongly-typed objects.
 
 Guarantees:
 - Rejects malformed JSON structures.
@@ -25,10 +25,11 @@ Non-responsibilities:
 - Does not control iteration or stopping logic.
 
 This module defines the only allowed shape of a legal verdict in Moltie.
-All LLM outputs must pass through Verdict.from_dict().
+Model output may be repaired or enriched by the client before it reaches
+Verdict.from_dict(), but the final object must still satisfy this schema.
 """
 
-UseMode = Literal["support", "contrast", "verify", "harmful"]
+UseMode = Literal["support", "contrast", "harmful"]
 Party = Literal["claimant", "respondent", "mixed", "unclear"]
 AppealOutcome = Literal["allowed", "dismissed", "remitted", "mixed", "unknown"]
 
@@ -151,6 +152,10 @@ class AnchorValidator:
         quote = str(d["quote"]).strip()
         if len(quote) < 10:
             raise ValueError("Anchor.quote too short")
+        if "\n" in quote or "\r" in quote:
+            raise ValueError("Anchor.quote must be single-line")
+        if len(quote) > 240:
+            raise ValueError("Anchor.quote too long")
 
         why = str(d["why_it_matters"]).strip()
         if len(why) < 5:
@@ -158,7 +163,7 @@ class AnchorValidator:
 
 
 class VerdictValidator:
-    USE_MODES = {"support", "contrast", "verify", "harmful"}
+    USE_MODES = {"support", "contrast", "harmful"}
     PARTIES = {"claimant", "respondent", "mixed", "unclear"}
     OUTCOMES = {"allowed", "dismissed", "remitted", "mixed", "unknown"}
 
@@ -276,8 +281,8 @@ class VerdictValidator:
 
         if not rel_bool:
             # irrelevant verdict must be contrast-only, no anchors, low score
-            if um not in ("contrast", "verify"):
-                raise ValueError("If relevant=false then use_mode must be 'contrast' or 'verify'")
+            if um != "contrast":
+                raise ValueError("If relevant=false then use_mode must be 'contrast'")
             if anchors:
                 raise ValueError("If relevant=false then anchors must be []")
             ps = int(d.get("precedent_score", 0) or 0)
@@ -294,4 +299,3 @@ class VerdictValidator:
             ps = int(d.get("precedent_score", 0) or 0)
             if ps <= 0:
                 raise ValueError("If relevant=true then precedent_score must be > 0")
-

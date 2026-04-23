@@ -80,7 +80,7 @@ def refine_query(atom: AtomQuery, verdict: Verdict, iter_no: int) -> RefineOutpu
     # Escalation schedule
     # iter 0: add a couple generic expansions
     # iter 1: add more expansions
-    # iter 2+: also add "negative cues" into excludes only if atom already has excludes list
+    # iter 2+: continue broadening recall terms conservatively
     cap_keywords = 10 + iter_no * 5
     cap_expansions = 12 + iter_no * 6
 

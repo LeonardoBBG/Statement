@@ -288,7 +288,7 @@ def run_harvest_then_reason_on_one_doc(
 
     window_size = max(1, int(getattr(run_cfg, "window_size", 24)))
     stride = max(1, int(getattr(run_cfg, "stride", 12)))
-    memory_max_items = int(getattr(run_cfg, "memory_max_items", 120))
+    memory_max_items = int(getattr(run_cfg, "memory_max_items", 30))
 
     full_para_ids_in_order = [p["para_id"] for p in paras]
     full_para_map = {p["para_id"]: p["text"] for p in paras}
@@ -414,7 +414,6 @@ def run_harvest_then_reason_on_one_doc(
 
         if strong:
             harvested_verdicts.append(verdict)
-            harvested_windows.append({"start": start, "end": end})
             for a in (getattr(verdict, "anchors", None) or []):
                 pid = a.para_id if hasattr(a, "para_id") else a.get("para_id")
                 if pid:
@@ -521,6 +520,11 @@ def run_agent_on_one_doc(
 
     # --- E2E GUARD: fix the 'n_paras=1 huge blob' PDF extraction failure mode ---
     paras = _maybe_rechunk_single_blob_paras(paras)
+    paras = _filter_front_matter(
+        paras,
+        min_keep=4,
+        debug=bool(getattr(run_cfg, "debug", False)),
+    )
 
     # --- harvest mode shortcut (explicitly NOT our focus, but preserve behavior) ---
     if bool(getattr(run_cfg, "harvest_mode", False)):
@@ -664,12 +668,12 @@ def run_agent_on_one_doc(
     evidence_to_x_all: Dict[str, Set[str]] = {}
 
     max_iters = int(getattr(run_cfg, "max_iters", 3))
-    eps_improve = int(getattr(run_cfg, "eps_improve", 0))
+    eps_improve = int(getattr(run_cfg, "eps_improve", 3))
     plateau_p = int(getattr(run_cfg, "plateau_p", 2))
 
-    thresh_score = int(getattr(run_cfg, "thresh_score", 1))
-    thresh_conf = getattr(run_cfg, "thresh_conf", 1)
-    anchors_required = int(getattr(run_cfg, "anchors_required", 1))
+    thresh_score = int(getattr(run_cfg, "thresh_score", 70))
+    thresh_conf = getattr(run_cfg, "thresh_conf", 70)
+    anchors_required = int(getattr(run_cfg, "anchors_required", 2))
 
     k_chunks_per_doc = int(getattr(run_cfg, "k_chunks_per_doc", 12))
 
@@ -804,6 +808,20 @@ def run_agent_on_one_doc(
             )
             dprint(f"[moltie.loop] INVALID_ANCHORS iter={i} repaired={repaired_n} bad={bad[:3]} -> continuing")
             plateau += 1
+            ref = refine_query(atom, verdict, i)
+            if ref.changed:
+                atom = ref.atom
+            trace.append(
+                {
+                    "phase": "refine",
+                    "doc_id": doc_id,
+                    "atom_id": atom.atom_id,
+                    "iter": i,
+                    "reason": "invalid_anchors",
+                    "changed": ref.changed,
+                    "note": ref.note,
+                }
+            )
             continue
 
         # accumulate evidence_to_x at PARA granularity
@@ -845,6 +863,23 @@ def run_agent_on_one_doc(
         anchors = getattr(verdict, "anchors", None) or []
         anchors_len = len(anchors)
 
+        def _apply_refine(reason: str) -> None:
+            nonlocal atom
+            ref = refine_query(atom, verdict, i)
+            if ref.changed:
+                atom = ref.atom
+            trace.append(
+                {
+                    "phase": "refine",
+                    "doc_id": doc_id,
+                    "atom_id": atom.atom_id,
+                    "iter": i,
+                    "reason": reason,
+                    "changed": ref.changed,
+                    "note": ref.note,
+                }
+            )
+
         # ACCEPT gate
         if (
             bool(getattr(verdict, "relevant", False))
@@ -879,9 +914,7 @@ def run_agent_on_one_doc(
                 )
                 plateau = 0
 
-                # refine only when we have anchors (we do here)
-                if anchors_len > 0:
-                    atom = refine_query(atom, verdict, i).atom
+                _apply_refine("plateau_continue")
                 continue
 
             dprint(
@@ -925,9 +958,7 @@ def run_agent_on_one_doc(
 
             return LoopResult(verdict=None, negative_exit=nx, iters=i, trace=trace)
 
-        # refine when we have valid anchors
-        if anchors_len > 0:
-            atom = refine_query(atom, verdict, i).atom
+        _apply_refine("iter_continue")
 
     # EXHAUSTED exit
     dprint(

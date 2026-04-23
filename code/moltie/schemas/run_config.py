@@ -31,7 +31,6 @@ class RunConfig:
     thresh_score: int = 70
     thresh_conf: int = 70
     anchors_required: int = 2
-    min_iters_for_anchors: int = 2
 
     # budget guards
     max_total_verifications: Optional[int] = None
@@ -64,27 +63,50 @@ class RunConfig:
 
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> "RunConfig":
+        iter_temp_curve = str(d.get("iter_temp_curve", "linear")).strip().lower() or "linear"
+        if iter_temp_curve not in {"linear", "exp"}:
+            raise ValueError("RunConfig.iter_temp_curve must be 'linear' or 'exp'")
+
+        window_size = max(1, int(d.get("window_size", 24)))
+        stride = max(1, int(d.get("stride", 12)))
+        top_windows = max(1, int(d.get("top_windows", 3)))
+        min_hits = max(0, int(d.get("min_hits", 2)))
+        max_iters = max(1, int(d.get("max_iters", 3)))
+        eps_improve = max(0, int(d.get("eps_improve", 3)))
+        plateau_p = max(1, int(d.get("plateau_p", 2)))
+        thresh_score = max(0, int(d.get("thresh_score", 70)))
+        thresh_conf = max(0, float(d.get("thresh_conf", 70)))
+        anchors_required = max(0, int(d.get("anchors_required", 2)))
+        k_chunks_per_doc = max(1, int(d.get("k_chunks_per_doc", 12)))
+        harvest_min_score = max(0, int(d.get("harvest_min_score", 60)))
+        harvest_min_conf = max(0, int(d.get("harvest_min_conf", 70)))
+        harvest_min_anchors = max(0, int(d.get("harvest_min_anchors", 1)))
+        memory_max_items = max(1, int(d.get("memory_max_items", 30)))
+        iter_temp_start = max(0.0, float(d.get("iter_temp_start", 0.0)))
+        iter_temp_end = max(0.0, float(d.get("iter_temp_end", 0.0)))
+        iter_temp_exp_k = max(0.1, float(d.get("iter_temp_exp_k", 2.0)))
+        iter_temp_cap = max(0.0, float(d.get("iter_temp_cap", 0.8)))
+
         # soft parse: missing keys fall back to defaults
         return RunConfig(
             debug=bool(d.get("debug", False)),
 
             k_candidates=int(d.get("k_candidates", 200)),
             k_verify_docs=int(d.get("k_verify_docs", 30)),
-            k_chunks_per_doc=int(d.get("k_chunks_per_doc", 12)),
+            k_chunks_per_doc=k_chunks_per_doc,
 
-            window_size=int(d.get("window_size", 24)),
-            stride=int(d.get("stride", 12)),
-            top_windows=int(d.get("top_windows", 3)),
-            min_hits=int(d.get("min_hits", 2)),
+            window_size=window_size,
+            stride=stride,
+            top_windows=top_windows,
+            min_hits=min_hits,
 
-            max_iters=int(d.get("max_iters", 3)),
-            eps_improve=int(d.get("eps_improve", 3)),
-            plateau_p=int(d.get("plateau_p", 2)),
+            max_iters=max_iters,
+            eps_improve=eps_improve,
+            plateau_p=plateau_p,
 
-            thresh_score=int(d.get("thresh_score", 70)),
-            thresh_conf=int(d.get("thresh_conf", 70)),
-            anchors_required=int(d.get("anchors_required", 2)),
-            min_iters_for_anchors=int(d.get("min_iters_for_anchors", 2)),
+            thresh_score=thresh_score,
+            thresh_conf=thresh_conf,
+            anchors_required=anchors_required,
 
             max_total_verifications=(
                 int(d["max_total_verifications"])
@@ -96,16 +118,16 @@ class RunConfig:
             y_dedup_out=(str(d["y_dedup_out"]).strip() if d.get("y_dedup_out") else None),
 
             harvest_mode=bool(d.get("harvest_mode", False)),
-            harvest_min_score=int(d.get("harvest_min_score", 60)),
-            harvest_min_conf=int(d.get("harvest_min_conf", 70)),
-            harvest_min_anchors=int(d.get("harvest_min_anchors", 1)),
-            memory_max_items=int(d.get("memory_max_items", 30)),
+            harvest_min_score=harvest_min_score,
+            harvest_min_conf=harvest_min_conf,
+            harvest_min_anchors=harvest_min_anchors,
+            memory_max_items=memory_max_items,
 
             # per-iter temperature (safe defaults)
             iter_temp_enabled=bool(d.get("iter_temp_enabled", False)),
-            iter_temp_start=float(d.get("iter_temp_start", 0.0)),
-            iter_temp_end=float(d.get("iter_temp_end", 0.0)),
-            iter_temp_curve=str(d.get("iter_temp_curve", "linear")).strip().lower() or "linear",
-            iter_temp_exp_k=float(d.get("iter_temp_exp_k", 2.0)),
-            iter_temp_cap=float(d.get("iter_temp_cap", 0.8)),
+            iter_temp_start=iter_temp_start,
+            iter_temp_end=iter_temp_end,
+            iter_temp_curve=iter_temp_curve,
+            iter_temp_exp_k=iter_temp_exp_k,
+            iter_temp_cap=iter_temp_cap,
         )

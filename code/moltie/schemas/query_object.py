@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, List, Optional
 
 import json
 from pathlib import Path
@@ -288,11 +287,12 @@ def build_atom_from_y_path(
     y_json = load_json(y_path)
 
     collapsed = collapse_x_hits_one_per_evidence(y_json, evidence_to_x)
+    collapsed_lists = {evidence_id: [x_id] for evidence_id, x_id in collapsed.items()}
 
     atom = build_atom_query_from_hits(
         atom_id=atom_id,
         y_json=y_json,
-        evidence_to_x=evidence_to_x,
+        evidence_to_x=collapsed_lists,
         proposition=None,  # auto-derive from Xi names
     )
 
@@ -321,6 +321,8 @@ def build_atom_query_from_hits(
     """
     collapsed = collapse_x_hits_one_per_evidence(y_json, evidence_to_x)
     x_tests = unique_x_tests_from_collapsed(collapsed)
+    if not x_tests:
+        raise ValueError("build_atom_query_from_hits: no deduped x_tests available")
 
     if not proposition:
         # Compact one-liner from selected Xi names
