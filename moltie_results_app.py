@@ -654,29 +654,41 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-overview_left, overview_right = st.columns([1.1, 1.9])
+overview_left, overview_right = st.columns([1.05, 1.95])
 with overview_left:
     top_good = x_diag["good"].head(10)
     top_bad = x_diag["bad"].head(10)
     st.markdown("<span class='badge-good'>Fast read</span>", unsafe_allow_html=True)
     st.write(f"Top good surfaces available: **{len(x_diag['good']):,}**")
     st.write(f"Top noise candidates available: **{len(x_diag['bad']):,}**")
-    if not exploratory["needle_table"].empty and exploratory["needle_table"]["needle"].nunique() <= 1:
+    needle_low = (not exploratory["needle_table"].empty) and (exploratory["needle_table"]["needle"].nunique() <= 1)
+    if needle_low:
         st.markdown("<span class='badge-warn'>Needle diversity low</span>", unsafe_allow_html=True)
         st.caption("Needle charting is descriptive only here. X surfaces matter more.")
 
+    legend_df = pd.DataFrame([
+        {"metric": "good_score", "reading": "Composite strength of an X surface. Higher means stronger repeat signal."},
+        {"metric": "bad_score", "reading": "Composite noise score. Higher means a stronger pruning candidate."},
+        {"metric": "n_strong", "reading": "Count of strong hits that passed your main thresholds."},
+        {"metric": "strong_rate_pct", "reading": "Share of runs that became strong signal for that X surface."},
+        {"metric": "mean_precedent_score", "reading": "Average precedent strength attached to that X surface."},
+        {"metric": "anchor_sum", "reading": "Total anchor mass tied to the surface across filtered rows."},
+    ])
+    st.markdown("**Legend / reading guide**")
+    st.dataframe(legend_df, use_container_width=True, hide_index=True, height=245)
+
 with overview_right:
-    col_a, col_b = st.columns(2)
-    with col_a:
+    chart_good, chart_bad = st.columns(2)
+    with chart_good:
         chart = top_bar(x_diag["good"], "x_name", "good_score", top_n=12)
         if chart is not None:
             st.caption("Good X surfaces")
-            st.bar_chart(chart)
-    with col_b:
+            st.bar_chart(chart, use_container_width=True)
+    with chart_bad:
         chart = top_bar(x_diag["bad"], "x_name", "bad_score", top_n=12)
         if chart is not None:
             st.caption("Noise triage")
-            st.bar_chart(chart)
+            st.bar_chart(chart, use_container_width=True)
 
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
