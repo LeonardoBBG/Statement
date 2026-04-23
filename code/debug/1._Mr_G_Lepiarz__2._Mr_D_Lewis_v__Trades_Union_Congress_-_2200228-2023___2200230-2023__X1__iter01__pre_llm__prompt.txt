@@ -1,0 +1,68 @@
+TOP RULES (ABSOLUTE):
+- If you cannot provide >= 1 anchors, set relevant=false and anchors=[].
+- allowed_para_ids count = 4. Only use those para_ids.
+
+SYSTEM / OUTPUT CONTRACT (NON-NEGOTIABLE):
+1) Output ONE JSON object ONLY matching the schema.
+2) Use ONLY allowed keys.
+3) Do NOT echo input JSON or evidence paragraphs.
+4) You MUST choose anchor.para_id ONLY from Input JSON allowed_para_ids.
+5) If you cannot meet anchors_required=1, set relevant=false, anchors=[], precedent_score<=40, use_mode="contrast".
+6) If relevant=true, return 1..4 anchors (never 0).
+
+You are a legal precedent verifier.
+
+
+Return STRICT JSON ONLY. No markdown. No commentary. One JSON object.
+
+ALLOWED KEYS ONLY (exactly these keys, no extras):
+relevant, precedent_score, confidence, anchors, use_mode,
+proposition_winner, appeal_outcome, successful_party, distinguishers,
+note, retrieval_score, retrieval_method
+
+Schema:
+{
+  "relevant": true|false,
+  "precedent_score": 0-100,
+  "confidence": 0-100,
+  "anchors": [
+    {"para_id": "p00001", "quote": "verbatim substring", "why_it_matters": "short"}
+  ],
+  "use_mode": "support|contrast|harmful",
+  "proposition_winner": "claimant|respondent|mixed|unclear",
+  "appeal_outcome": "allowed|dismissed|remitted|mixed|unknown",
+  "successful_party": "claimant|respondent|mixed|unclear",
+  "distinguishers": ["..."],
+  "note": "ONE sentence",
+  "retrieval_score": number|null,
+  "retrieval_method": "string|null"
+}
+
+Hard rules (NON-NEGOTIABLE):
+- anchors[].para_id MUST be one of the provided allowed_para_ids values (exact match).
+- anchors[].quote MUST be a verbatim substring of that paragraph text (copy/paste exact).
+- anchors[].quote MUST be SINGLE-LINE (no newline characters) and <= 240 characters.
+- anchors[].quote MUST be the MINIMUM necessary snippet (do NOT paste the entire paragraph).
+- anchors[].quote MUST NOT contain markdown fences or labels like "Para:"/"Paragraph:".
+- anchors[].why_it_matters MUST be SINGLE-LINE and <= 20 words.
+- If relevant=true then anchors MUST be non-empty and MUST directly support the matched_X you selected.
+- If you cannot provide >= anchors_required anchors, set relevant=false, anchors=[], precedent_score<=40.
+- If relevant=true then use_mode MUST be "support".
+- If relevant=false then use_mode MUST be "contrast".
+- Do NOT invent parties/outcomes: if not explicitly stated in the provided paras, use "unclear"/"unknown".
+- precedent_score and confidence MUST be integers in 0..100. If unknown, use 0.
+- note MUST be a single short sentence (or "No relevant information found.").
+- IMPORTANT SCOPE GUARD: Do NOT treat remedy/compensation/medical causation (ill-health, loss, Polkey, contributory fault)
+  as support for X1–X3 unless AtomQuery explicitly targets REMEDY. If remedy-focused, set relevant=false.
+COPY PROTOCOL (MANDATORY):
+- When you create an anchor.quote, you MUST copy-paste text EXACTLY from the paragraph.
+- Do NOT paraphrase. Do NOT retype from memory. Do NOT change apostrophes/quotes.
+- The quote MUST appear as a contiguous substring in that paragraph.
+- If you cannot comply, set relevant=false and anchors=[].
+
+
+OUTPUT JSON TEMPLATE (fill values, keep keys identical):
+{"relevant": false, "precedent_score": 0, "confidence": 0, "anchors": [], "use_mode": "contrast", "proposition_winner": "unclear", "appeal_outcome": "unknown", "successful_party": "unclear", "distinguishers": [], "note": "", "retrieval_score": null, "retrieval_method": null}
+
+Input JSON (DO NOT ECHO BACK):
+{"atom": {"atom_id": "X1", "x_tests": ["X1"], "proposition": "Management Role Definition", "positive_indicators": ["management discussed", "role and priorities", "responsibilities understood", "contemporaneous records"], "excludes": ["employee assumption", "informal discussion"], "keyword_seeds": ["management discussed", "role and priorities", "responsibilities understood", "contemporaneous records"], "expansion_terms": []}, "doc_id": "1._Mr_G_Lepiarz__2._Mr_D_Lewis_v__Trades_Union_Congress_-_2200228-2023___2200230-2023", "doc_meta": {}, "anchors_required": 1, "anchors_max": 4, "allowed_para_ids": ["p00016", "p00017", "p00018", "p00019"], "paras": [{"para_id": "p00016", "text": "was an allegation of financial impropriety and an indication that TUC email addresses had been used . She said that the suspension was necessary to secure and preserve evidence. 32. It was put to Ms Dixon in cross examination that emails deleted from TUC email addresses could be retrieved. She agreed that she now understood that to be the case . Ms Quiney’s evidence was that at the time she believed that the emails would be permanently deleted but she subsequently learned they were retained in the cloud for six months.  It was apparent to us that neither at the time of suspension nor subsequently did any relevant person investigate ways of preserving email evidence. 33. Mr Rowan spoke with Ms Quiney and they sought approval for the suspensions from Mr Nowak which was granted . Mr Nowak said that he was asked to approve the suspension s  so that any relevant ev idence could be preserved and a fair and thorough investigation could be pursued  and because of reputational risk to the respondent. 34. Mr Lepiarz was working in the office that day so Ms Dixon went to see him and informed him of hi s suspension in person. Mr Lewis was working remotely so Ms Dixon telephoned him. She made notes of the points she planned to cover in the discussions in advance and the claimants were provided with those notes, to which she added some notes of points they raised. The manner of the suspensions gave rise to grievances which we discuss below. 35. Ms Dixon’s notes were as follows: Case Numbers: 2200228/2023 and 2200230/2023 13 Suspension Notes – Grzegorz Lepiarz: 1 December 2021 • Meeting relates to information received by management regarding alleged misconduct • Allegation regarding Newham Trades Council and provision of paid IT services • In light of"}, {"para_id": "p00017", "text": "the allegations and to allow for a full investigation – DGS has approved suspension from work on full pay • Not  an indication of disciplinary decision or sanction • During suspension – won’t be able to access the building without prior notification • IT access will be suspended • Access card will be suspended • Will be writing to arrange investigation meeting date/ arrangements – check home address • Provide list of rep and contact details • Ask if any personal effects that needs to be collected – if so, will need to escort to collect these • Will be asked to leave building immediately once personal effects collected and to refrain from using IT • Any immediate questions Note: As no reps were in the office, Ian Gifford, Events Manager attending the meeting as witness Questions from GL/JD’s responses • How long suspension – initially 2 weeks with ongoing review • When will investigation be – within the next week • Can I have solicitors/lawyer at investigation meeting – suggest to discuss with union rep • Confirmed personnel will respond to queries in a timely manner, work allowing for this • Will provide information regarding investigation • Requested Cascade information: - All information on Document screen - Payslips - P60 - Holiday/sickness records since start of employment Suspension Notes – Darren Lewis: 1 December 2021 • Call relates to information received by management regarding alleged misconduct • Allegation regarding Newham Trades Council and provision of paid IT services • In light of the allegations and to allow for a full investigation – DGS has approved suspension from work on full pay • Not an indicati on of disciplinary decision or sanction • During suspension – won’t be able to access the building without"}, {"para_id": "p00018", "text": "prior notification • IT access will be suspended • Access card will be suspended • Sending letter confirming suspension and arrangements during suspe nsion • Will be writing to arrange investigation meeting date/arrangements – check home address • Provide list of rep and contact details - posted • Any immediate questions Points from DL • Race relations cttee at 5.30 • Sam Gurney to let people into the m eeting • need to speak to delegates • Sam to accept people into meeting • Need moderator 36. We heard some evidence about Ms Dixon’s practice in relation to HR matters; she did not routinely make notes of phone calls or keep file notes. We observe that she di d not seem to have had a system on place for keeping all of t he emails and documents together for the ongoing investigation. 37. On 2 December 2021 , Ms Dixon wrote to Mr Lepiarz, inviting him  to a disciplinary investigation meeting on 7 December 2021: The reason for the meeting is to discuss the following allegations, reported by management: • that you allegedly provided IT services to Newham Trades Council, and charged them for this service, which was facilitated by Darren Lewis, Secretary/Administrati ve Assistant in London, East and South East (LESE) • that you allegedly offered these paid for services to Newham Trades Council giving the false impression that the service was being offered by the TUC to trades councils • that you allegedly used your TUC  email account to Case Numbers: 2200228/2023 and 2200230/2023 14 provide the service and communicate as a service provider with Newham Trades Council 38. On 3 December 2021, Ms Dixon wrote to Mr Lewis inviting him to a disciplinary investigation meeting on 8 December 2021: the reason for the meeting is to discuss the following allegations, reported by"}, {"para_id": "p00019", "text": "management: • that you allegedly brokered and facilitated services for Grzegorz Lepiarz, Conference Assistant in C ongress Centre, to provide IT services to Newham Trades Council, which he allegedly charged them for 39. Ms Dixon also sent the claimants a copy of  the respondent’s ICT Acceptable Use policy and wrote to Mr Lepiarz saying that she had arranged to have access to his TUC email on 7 December in his presence after the investigation hearing. 40. That policy contained the following relevant sections: 2 ICT facilities are intended for TUC activity, so information sent out, received or accessed should be fo r this purpose. There may be some personal use of email and internet, and staff making personal use of these facilities must do so appropriately, in a responsible manner, and in a way that will not potentially bring the TUC into disrepute or place the indi vidual or the TUC in breach of statutory or other legal obligations. Personal use should not be excessive and must not interfere with the individual's job performance or the provision of TUC services.  Staff should not store personal files on TUC equipment  or systems. Staff should not use the TUC’s ICT to make personal commercial gain or conduct a personal business. 4. Not using ICT to undermine TUC’s reputation Staff should not use TUC ICT to undermine the TUC’s reputation, brand, values or policies on equal opportunities or dignity at work.  This includes using ICT whether anonymous or otherwise to • Bully, harass or abuse anyone, whether a member of the staff or of the public – see also the TUC’s Dignity at Work Policy/Social Media Policy • Cause the TUC to be accused of making libellous or defamatory remarks • Access, download, send or receive any data including images which TUC"}], "retrieval": {"method": "sliding_window", "score": 10.0, "matched_paras": 84, "k": 4, "min_hits": 1, "window_size": 12, "stride": 12, "top_windows": 1, "est_total_windows": 7, "picked_windows": [{"start": 12, "end": 24, "score": 22}]}, "mode": "verify"}

@@ -14,7 +14,7 @@ from ..schemas.run_config import RunConfig
 from ..schemas.verdict import Verdict
 
 from .refine import refine_query
-from .retrieve import retrieve_windowed_evidence
+from .retrieve import retrieve_windowed_evidence, _maybe_rechunk_single_blob_paras
 from .semantic_memory import SemanticMemory
 from pathlib import Path
 import json
@@ -49,11 +49,6 @@ _SOFT_JUNK_SIGNALS = (
     "hearing date",
     "transcript",
 )
-
-def _sanitize_matched_x(verdict: Verdict, atom: AtomQuery) -> List[str]:
-    allowed = set(getattr(atom, "x_tests", []) or [])
-    xs = [str(x).strip() for x in (getattr(verdict, "matched_X", None) or []) if str(x).strip()]
-    return [x for x in xs if x in allowed]
 
 def _is_junk_para(text: str) -> bool:
     if not text:
@@ -247,78 +242,6 @@ def _is_strong_for_harvest(v: Verdict, run_cfg: RunConfig) -> bool:
     )
 
 
-def _maybe_rechunk_single_blob_paras(
-    paras: List[Dict[str, str]],
-    *,
-    min_len: int = 40,
-    max_para_chars: int = 1800,
-    blob_threshold: int = 5000,
-) -> List[Dict[str, str]]:
-    """
-    E2E safety guard:
-    If upstream PDF extraction collapsed everything into ONE giant paragraph,
-    split it into multiple paras so anchors can reference valid para_ids.
-
-    This does NOT depend on pdfplumber; it just restructures already-extracted text.
-    """
-    if not paras or len(paras) != 1:
-        return paras
-
-    text = (paras[0].get("text") or "").strip()
-    if len(text) < blob_threshold:
-        return paras  # not a huge blob; leave it
-
-    # Normalize line endings
-    t = text.replace("\r\n", "\n").replace("\r", "\n")
-
-    # Try paragraph split on blank lines first
-    parts = [p.strip() for p in t.split("\n\n") if p.strip()]
-
-    # If blank lines are missing, fall back to line grouping
-    if len(parts) <= 3:
-        lines = [ln.strip() for ln in t.split("\n") if ln.strip()]
-        parts = []
-        buf: List[str] = []
-        size = 0
-        for ln in lines:
-            if size + len(ln) + 1 > max_para_chars and buf:
-                parts.append(" ".join(buf).strip())
-                buf = [ln]
-                size = len(ln)
-            else:
-                buf.append(ln)
-                size += len(ln) + 1
-        if buf:
-            parts.append(" ".join(buf).strip())
-
-    # Filter tiny junk + cap long paras
-    out: List[str] = []
-    for p in parts:
-        if len(p) < min_len:
-            continue
-        if len(p) <= max_para_chars:
-            out.append(p)
-        else:
-            # Chunk long paras conservatively by sentences-ish
-            chunk: List[str] = []
-            cur = 0
-            for sent in p.split(". "):
-                s = sent if sent.endswith(".") else sent + "."
-                if cur + len(s) + 1 > max_para_chars and chunk:
-                    out.append(" ".join(chunk).strip())
-                    chunk = [s]
-                    cur = len(s)
-                else:
-                    chunk.append(s)
-                    cur += len(s) + 1
-            if chunk:
-                out.append(" ".join(chunk).strip())
-
-    return [{"para_id": f"p{i:05d}", "text": p} for i, p in enumerate(out, start=1)]
-
-
-from typing import Any, Dict, List, Optional, Set, Tuple
-
 def run_harvest_then_reason_on_one_doc(
     doc_id: str,
     paras: List[Dict[str, str]],
@@ -372,22 +295,8 @@ def run_harvest_then_reason_on_one_doc(
 
     harvested_verdicts: List["Verdict"] = []
     harvested_para_ids: Set[str] = set()
-    harvested_windows: List[Dict[str, Any]] = []
-
     # evidence_id format: f"{doc_id}:{para_id}"
     harvested_evidence_to_x: Dict[str, Set[str]] = {}
-
-    def _evidence_to_x_from_verdict(_doc_id: str, _verdict: "Verdict") -> Dict[str, List[str]]:
-        xs = [str(x).strip() for x in (getattr(_verdict, "matched_X", None) or []) if str(x).strip()]
-        anchors = getattr(_verdict, "anchors", None) or []
-        out: Dict[str, Set[str]] = {}
-        for a in anchors:
-            pid = a.para_id if hasattr(a, "para_id") else a.get("para_id")
-            if not pid:
-                continue
-            evid = f"{_doc_id}:{str(pid).strip()}"
-            out.setdefault(evid, set()).update(xs)
-        return {k: sorted(v) for k, v in out.items()}
 
     n = len(paras)
 

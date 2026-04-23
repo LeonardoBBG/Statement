@@ -22,7 +22,7 @@
     "successful_party": "unclear",
     "distinguishers": [],
     "note": "No relevant information found.",
-    "retrieval_score": 5.0,
+    "retrieval_score": 4.0,
     "retrieval_method": "sliding_window"
   },
   "meta": {
@@ -30,7 +30,7 @@
     "atom_id": "X3",
     "iter": 2,
     "stage": "post_llm",
-    "llm_temperature": 0.1,
+    "llm_temperature": 0.0,
     "semantic_repaired_anchors": 0
   }
 }

@@ -1,0 +1,40 @@
+{
+  "doc_id": "1._Mr_G_Lepiarz__2._Mr_D_Lewis_v__Trades_Union_Congress_-_2200228-2023___2200230-2023",
+  "doc_meta": {},
+  "paras": [
+    {
+      "para_id": "p00067",
+      "text": "claimants the apparent inconsistency between their accounts. 193. We note that Mr Lewis had done a significant amount of apparently free work for Ms Dye in other respects. This made it less inherently improbable that the website would have been produced on a not for profit basis. 194. Ultimately it seems to us that given the poverty of the investigation conducted by the respondent, there simply was not sufficient evidence on the basis of which a reasonable employer could conclude that the website had been provided with a view to commercial gain. 195. Was it reasonable to find Mr Lepiarz guilty of the second charge, that he offered paid for services…giving the false impression that the service was being offered by the TUC to trades councils? 196.  Mr Lepiarz’s evidence to the disciplinary hearing was that he had done nothing to give the impression he was providing services on behalf of the TUC. There was no email in front of the disciplinary sent from Mr Lepiarz’s TUC email address and Ms Dye was not asked to produce any such emails. No search was conducted by the respondent of Mr Lepiarz’s emails. The single email sent by Ms Dye copying in Mr Lepiarz at his TUC address was sent on 1 December 2021, after Ms Dye had raised issues with Mr Gurney, Neither Ms Dixon nor the disciplinary panel pressed Ms Dye on why she understood it was a TUC service. The invoice was not on TUC paper or made out to the TUC or to be paid to a TUC bank account although  it was sent to Ms Dye from Mr Lewis’ TUC email account. Case Numbers: 2200228/2023 and 2200230/2023 45 197. Ms Dye’s own evidence was unclear as to why exactly she thought the work was being done on behalf of the TUC and the respondent did not seek to clarify it with her. Although she stated she received email from Mr Lepiarz’s"
+    },
+    {
+      "para_id": "p00061",
+      "text": "should be considered. These may be explanations relied on by the alleged discriminator, if accepted as genuine by a tribunal; or they may be explanations that arise from a tribunal’s own findings.’ 164. Although unreasonable treatment without more will not cause the burden of proof to shift (Glasgow City Council v Zafar [1998] ICR 120, HL), unexplained unreasonable treatment may:  Bahl v Law Society [2003] IRLR 640, EAT. 165. We remind ourselves that it is important not to approach the burden of proof in a mechanistic way and that our focus must be on whether we can properly and fairly infer discrimination: Laing v Manchester City Council and anor [2006] ICR 1519, EAT. If we can make clear positive findings as to an employer’s motivation, we need not revert to the burden of proof at all: Martin v Devonshires Solicitors [2011] ICR 352, EAT. Conclusions The investigation 166. We first considered whether the respondent had conducted such investigation as was reasonable, remembering that there will be a range of reasonable investigations. 167. The claimants characterised the investigation as being limited to: Case Numbers: 2200228/2023 and 2200230/2023 41 - Two interviews with Ms Dye, the notes of which were available to the disciplinary panel and appeal manager but not disclosed to the claimants; - One request by Ms Dixon to Mr Gurney to provide a statement; - a number of emails from Ms Dye relating to her communications with the claimants between March 2021 and November 2021. 168. They pointed out that a number of further statements were received from Ms Dye, only one of which was put before the disciplinary panel and appeal and none of which were disclosed to the claimants. 169. The claimants submitted that in circumstances where the claimants were not"
+    },
+    {
+      "para_id": "p00070",
+      "text": "Dye’s view of the TUC as a result of the events which occurred and the respondent never sought the evidence of any other officers of Newham Trades Council. 207. In all of those circumstances, although we accepted that the charges clearly had the potential to bring the respondent into disrepute, the respondent did not have reasonable grounds to conclude that Mr Lepiarz had brought the TUC’s reputation into disrepute. That the tone of emails from Mr  Lepiarz concerning payment constituted “bullying and harassment” and amounted to gross misconduct 208. This was an allegation which was not put to Mr Lepiarz in advance of or at the disciplinary hearing. There was no reason why it could not have been put; it was not something that arose unexpectedly during the hearing.  Mr Lepiarz was not asked about the tone of his emails. 209. Further to the failure to put the charge to Mr Lepiarz, the Tribunal could not be satisfied that the respondent otherwise had good grounds in circumstances where Ms Quiney had misunderstood the content of emails and where she otherwise suggested that it was the reference to using a solicitor which made the emails bullying and harassing.  We accepted that the tone of the email was unfriendly and that it would have been unpleasant Case Numbers: 2200228/2023 and 2200230/2023 47 for Ms Dye to receive. It appeared to the Tribunal that by that point, the claimants were concerned as to where the issue about the website was going and were anxious to shut down Ms Dye’s complaints. 210. Given the failings we have identified we concluded that a reasonable employer could not have concluded that the emails sent by Mr Lepiarz could properly be characterised as bullying, harassment or gross misconduct. Mr Lewis"
+    },
+    {
+      "para_id": "p00071",
+      "text": "Single charge that he had brokered and facilitated for GL to provide IT services to Newham Trades Council, which he charged them for. 211. For the same reasons as we have set out above, we concluded that the respondent did not have reasonable grounds to conclude that there was a meaningful charge for the services, ie a charge over and above the costs of providing the website and/or that Mr Lewis had either made or sought to make a financial gain. Additional findings against Mr Lewis That Mr Lewis breached the respondent’s conflict of interest policy and disclosure of interest policy and that this amounted to an act of gross misconduct 212. We found that the respondent did not have reasonable grounds to reach this conclusion for the same reasons we have set out in respect of the same charge against Mr Lepiarz. “by facilitating paid for services to Newham Trades Council”, Mr Lewis “gave the false impression that the service was being offered by the TUC” 213. Although Mr Rowan in particular identified this as a key issue, it was not put to Mr Lewis at or in advance of the disciplinary hearing. The conclusion appears to have been reached primarily on the basis that Mr Lewis communicated with Ms Dye via his TUC email address but there was a failure to explore with Ms Dye exactly what had been said to her and why she had formed the view that this was a TUC service. In circumstances where there was good evidence that Mr Lewis was providing voluntary assistance to Ms Dye in the form of assistance with Zoom codes, flyers and business cards, without further investigation, the respondent could not have reasonable grounds for this conclusion. 214. In this respect, as in relation to other charges, although the charge was"
+    }
+  ],
+  "retrieval": {
+    "method": "sliding_window",
+    "score": 13.0,
+    "matched_paras": 84,
+    "k": 4,
+    "min_hits": 1,
+    "window_size": 12,
+    "stride": 12,
+    "top_windows": 1,
+    "est_total_windows": 7,
+    "picked_windows": [
+      {
+        "start": 60,
+        "end": 72,
+        "score": 28
+      }
+    ]
+  }
+}

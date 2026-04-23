@@ -1,0 +1,68 @@
+TOP RULES (ABSOLUTE):
+- If you cannot provide >= 1 anchors, set relevant=false and anchors=[].
+- allowed_para_ids count = 4. Only use those para_ids.
+
+SYSTEM / OUTPUT CONTRACT (NON-NEGOTIABLE):
+1) Output ONE JSON object ONLY matching the schema.
+2) Use ONLY allowed keys.
+3) Do NOT echo input JSON or evidence paragraphs.
+4) You MUST choose anchor.para_id ONLY from Input JSON allowed_para_ids.
+5) If you cannot meet anchors_required=1, set relevant=false, anchors=[], precedent_score<=40, use_mode="contrast".
+6) If relevant=true, return 1..4 anchors (never 0).
+
+You are a legal precedent verifier.
+
+
+Return STRICT JSON ONLY. No markdown. No commentary. One JSON object.
+
+ALLOWED KEYS ONLY (exactly these keys, no extras):
+relevant, precedent_score, confidence, anchors, use_mode,
+proposition_winner, appeal_outcome, successful_party, distinguishers,
+note, retrieval_score, retrieval_method
+
+Schema:
+{
+  "relevant": true|false,
+  "precedent_score": 0-100,
+  "confidence": 0-100,
+  "anchors": [
+    {"para_id": "p00001", "quote": "verbatim substring", "why_it_matters": "short"}
+  ],
+  "use_mode": "support|contrast|harmful",
+  "proposition_winner": "claimant|respondent|mixed|unclear",
+  "appeal_outcome": "allowed|dismissed|remitted|mixed|unknown",
+  "successful_party": "claimant|respondent|mixed|unclear",
+  "distinguishers": ["..."],
+  "note": "ONE sentence",
+  "retrieval_score": number|null,
+  "retrieval_method": "string|null"
+}
+
+Hard rules (NON-NEGOTIABLE):
+- anchors[].para_id MUST be one of the provided allowed_para_ids values (exact match).
+- anchors[].quote MUST be a verbatim substring of that paragraph text (copy/paste exact).
+- anchors[].quote MUST be SINGLE-LINE (no newline characters) and <= 240 characters.
+- anchors[].quote MUST be the MINIMUM necessary snippet (do NOT paste the entire paragraph).
+- anchors[].quote MUST NOT contain markdown fences or labels like "Para:"/"Paragraph:".
+- anchors[].why_it_matters MUST be SINGLE-LINE and <= 20 words.
+- If relevant=true then anchors MUST be non-empty and MUST directly support the matched_X you selected.
+- If you cannot provide >= anchors_required anchors, set relevant=false, anchors=[], precedent_score<=40.
+- If relevant=true then use_mode MUST be "support".
+- If relevant=false then use_mode MUST be "contrast".
+- Do NOT invent parties/outcomes: if not explicitly stated in the provided paras, use "unclear"/"unknown".
+- precedent_score and confidence MUST be integers in 0..100. If unknown, use 0.
+- note MUST be a single short sentence (or "No relevant information found.").
+- IMPORTANT SCOPE GUARD: Do NOT treat remedy/compensation/medical causation (ill-health, loss, Polkey, contributory fault)
+  as support for X1–X3 unless AtomQuery explicitly targets REMEDY. If remedy-focused, set relevant=false.
+COPY PROTOCOL (MANDATORY):
+- When you create an anchor.quote, you MUST copy-paste text EXACTLY from the paragraph.
+- Do NOT paraphrase. Do NOT retype from memory. Do NOT change apostrophes/quotes.
+- The quote MUST appear as a contiguous substring in that paragraph.
+- If you cannot comply, set relevant=false and anchors=[].
+
+
+OUTPUT JSON TEMPLATE (fill values, keep keys identical):
+{"relevant": false, "precedent_score": 0, "confidence": 0, "anchors": [], "use_mode": "contrast", "proposition_winner": "unclear", "appeal_outcome": "unknown", "successful_party": "unclear", "distinguishers": [], "note": "", "retrieval_score": null, "retrieval_method": null}
+
+Input JSON (DO NOT ECHO BACK):
+{"atom": {"atom_id": "X1", "x_tests": ["X1"], "proposition": "Management Role Definition", "positive_indicators": ["management discussed", "role and priorities", "responsibilities understood", "contemporaneous records"], "excludes": ["employee assumption", "informal discussion"], "keyword_seeds": ["management discussed", "role and priorities", "responsibilities understood", "contemporaneous records"], "expansion_terms": []}, "doc_id": "1._Mr_G_Lepiarz__2._Mr_D_Lewis_v__Trades_Union_Congress_-_2200228-2023___2200230-2023", "doc_meta": {}, "anchors_required": 1, "anchors_max": 4, "allowed_para_ids": ["p00002", "p00004", "p00005", "p00006"], "paras": [{"para_id": "p00002", "text": "Agreed list of issues 1. Mr Lewis and Mr Lepiarz bring claims of (1) unfair dismissal and (2) breach of contract. In addition, Mr Lewis brings a claim of (3) holiday pay and (4) direct race discrimination.  As discussed with the parties at the outset, (1) Unfair dismissal 2. What was the reason or principal reason for the dismissals? The Respondent says the reason was conduct. The Tribunal will need to decide whether the Respondent genuinely believed the Claimants had committed misconduct. 3. If the reason was misconduct, did the Respondent act reasonably in all the circumstances in treating that as a sufficient reason to dismiss the Claimants? The Tribunal will consider whether: a) there were reasonable grounds for that belief; b) at the time the belief was formed the Respondent had carried out a reasonable investigation; c) the Respondent otherwise acted in a procedurally fair manner; d) dismissal was within the range of reasonable responses. 4. Polkey - Is there a chance that the Claimants would have been fairly dismissed anyway if a fair procedure had been followed? 5. Contributory fault  - If the dismissal was unfair did the Claimants cause or contribute to their own dismissal? Case Numbers: 2200228/2023 and 2200230/2023 3 (2) Wrongful Dismissal/Breach of Contract 6. Were the Claimants guilty of gross misconduct? Were the Claimants actions sufficiently serious that the Respondent was entitled to dismiss without notice? Breach of Contract (Mr Lewis only) 7. Did the Respondent breach Mr Lewis’ contract in respect to the failure to pay him full pay in July and August 2022? (3) Holiday pay (Mr Lewis only) 8. Is Mr Lewis owed any unpaid holiday pay? a) Mr Lewis says he is owed 26.25 days (para 92 of his W/S)"}, {"para_id": "p00004", "text": "23. Did the ACAS Code of Practice on Disciplinary and Grievance Procedures apply? 24. Did the Respondent or the Claimants unreasonably fail to comply with it? 25. If so, is it just and equitable to increase or decrease any award payable to the claimant? By what proportion, up to 25%? 26. If the Claimants were unfairly dismissed, did they cause or contribute to dismissal by blameworthy conduct? 27. If so, would it be just and equitable to reduce the Claim ants’ compensatory award? By what proportion?  Does the statutory cap of fifty -two weeks’ pay apply? 28. What basic award is payable to the Claimant, if any? 29. Would it be just and equitable to reduce the basic award because of any conduct of the claimant before the dismissal? If so, to what extent? 30. Is Mr Lewis entitled to damages for injury to feelings? Findings of fact The hearing 2. The bundle had not been provided to the Tribunal in a complete and accessible format at the start of the first day of the hearing. Ultimately that meant we lost Case Numbers: 2200228/2023 and 2200230/2023 5 several hours of hearing time , which was unfortunate in a claim which was already tightly timetabled. The Tribunal added two days to the existing six day listing so that we could complete our deliberations. 3. We h ad an electronic bundle running to 13 46 pages. We received witness statements and heard evidence from the following witnesses: For the respondent: Ms J Dixon, personnel manager; Ms A Bance, head of campaigns, communication and digital; Ms M Quiney , head of the management services and administration department; Mr K Rowan, head of the organisation, service and skills department; Mr P Nowak, then deputy general secretary. The claimants gave evidence on their own behalf. Facts in the claims"}, {"para_id": "p00005", "text": "4. The respondent is a federation  of trade u nions. We were told that i t has something in the region of 200 employees . Most of the witnesse s we saw described themselves as trade union activists. 5. On 17 September 200 1, Mr Lewis commenced employment  with the department as a departmental secretary. 6.  On 4 June 2018, Mr Lepiarz started working for the respondent as a conference assistant. 7. The events which were the subject of the disciplinary charges the claimants faced occurred in 2020 – 2021. They concerned the provision of a website for Newham Trades Council. Ms J Dye is the secretary for Newham Trades Council and arrangements for the website were made between her and the claimants. It is not in dispute that a website was created for Newham Trades Council by Mr Lepiarz. Broadly speaking the parties agreed that at some stage the claimants asked for a payment from Ms Dye. The claimants say that the payment was to cover the cost s incurred by Mr Lepiarz in creating and maintaining the website. 8. We were told Newham Trades Council are ‘stakeholders’ in relation to the respondent. Trades councils are supported in their campaign wor k by the respondent. They pay a voluntary levy to register with the respondent and there is a grant fund they can submit bids for. We were told that they are not provided with ‘business support’, such as IT services. 9. Mr Lewis in his role would liaise with trades councils within his region, London, East and South East region (‘LESE’). Mr Lewis had a cordial relationship with Ms Dye and they used nicknames for one another (‘Mayor’ for Ms Dye, ‘Commander’ for Mr Lewis) in their email correspondence. He provided her with various services on a voluntary basis such as assistance with Zoom codes and"}, {"para_id": "p00006", "text": "with designing and sending out  flyers and business cards. These services Case Numbers: 2200228/2023 and 2200230/2023 6 appear to have been beyond the assistance he would have been expected to provide to a trades council in his role with the respondent. 10. Sam Gurney is regional secretary for LESE. 11. Some time in the summer of 2020 there was contact between the Mr Lepiarz and Ms Dye as Ms Dye needed help w ith her computer. Mr Lepiarz offered to assist with setting up a new laptop but ultimately M s Dye did n ot take up the offer due to concerns about being visited or travelling during the pandemic. 12. At some point after that there were discussion about the creation of a website for Newham Trades Council. Mr Lepiarz created a website . There were some discussions about payment. 13.  On 24 March 202 1, Mr Lewis emailed Ms Dye from his TUC email address attaching an invoice. The message said ‘New invoice attached. This covers up until 31 December 2021.’ 14. On 21 April 2021, Mr Lewis sent Ms Dye an email with the subject Line ‘No cheque’ in which he wrote: Mayor (good morning) Greg has similar to Unity Trust with cheques He cannot receive cheque as I won't be able to cash it based on this invoice. Bank details are below: [Mr Lepiarz’s bank details] 15.  Ms Dye made a payment of £320  to Mr Lepiarz’s bank  but for reasons which later became apparent, Mr Lepiarz did n ot believe the sum had been received by him. There were problems with the website in summer 2021. 16. In October 2021 there were emails from Mr Lewis to Lloyds Bank , copying in Ms Dye, (Mr Lepiarz’s bank and also Ms Dye’s) complaining about the payment having gone missing. 17. On 10 and 11 November 2021, emails were exchanged between Mr Lewis and"}], "retrieval": {"method": "sliding_window", "score": 8.0, "matched_paras": 84, "k": 4, "min_hits": 1, "window_size": 12, "stride": 12, "top_windows": 1, "est_total_windows": 7, "picked_windows": [{"start": 0, "end": 12, "score": 18}]}, "mode": "verify"}

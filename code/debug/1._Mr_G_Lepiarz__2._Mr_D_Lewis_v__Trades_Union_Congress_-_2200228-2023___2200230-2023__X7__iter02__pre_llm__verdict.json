@@ -1,0 +1,20 @@
+{
+  "x_classification_basis": {
+    "target_atom_id": "X7",
+    "matched_X": [],
+    "relevant": null,
+    "use_mode": null,
+    "precedent_score": null,
+    "confidence": null,
+    "note": null
+  },
+  "verdict": null,
+  "meta": {
+    "doc_id": "1._Mr_G_Lepiarz__2._Mr_D_Lewis_v__Trades_Union_Congress_-_2200228-2023___2200230-2023",
+    "atom_id": "X7",
+    "iter": 2,
+    "stage": "pre_llm",
+    "llm_temperature": 0.0,
+    "semantic_repaired_anchors": null
+  }
+}

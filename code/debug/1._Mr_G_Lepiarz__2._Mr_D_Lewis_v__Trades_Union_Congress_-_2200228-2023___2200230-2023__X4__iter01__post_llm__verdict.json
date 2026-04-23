@@ -6,7 +6,7 @@
     "use_mode": "contrast",
     "precedent_score": 0,
     "confidence": 0,
-    "note": "The tribunal's findings indicate that the claimants were treated unfairly in the disciplinary process, particularly due to the lack of proper evidence exploration and impartiality in the appeal process. The claimants' appeal was successful, and they were the successful party in this case."
+    "note": "No relevant information found."
   },
   "verdict": {
     "atom_id": "X4",
@@ -17,16 +17,12 @@
     "confidence": 0,
     "anchors": [],
     "use_mode": "contrast",
-    "proposition_winner": "claimant",
+    "proposition_winner": "unclear",
     "appeal_outcome": "unknown",
-    "successful_party": "claimant",
-    "distinguishers": [
-      "The tribunal found that the respondent did not have reasonable grounds for the finding of bullying and harassment against Mr. Lewis.",
-      "The tribunal concluded that it was unnecessary and unfair for Mr. Nowak to have heard the appeals given the availability of Baroness O’Grady.",
-      "The tribunal found that the respondent failed to provide all relevant evidence to the disciplinary panel and the claimants, which was a material unfairness in the procedure."
-    ],
-    "note": "The tribunal's findings indicate that the claimants were treated unfairly in the disciplinary process, particularly due to the lack of proper evidence exploration and impartiality in the appeal process. The claimants' appeal was successful, and they were the successful party in this case.",
-    "retrieval_score": 19.0,
+    "successful_party": "unclear",
+    "distinguishers": [],
+    "note": "No relevant information found.",
+    "retrieval_score": 8.0,
     "retrieval_method": "sliding_window"
   },
   "meta": {
@@ -34,7 +30,7 @@
     "atom_id": "X4",
     "iter": 1,
     "stage": "post_llm",
-    "llm_temperature": 0.2,
+    "llm_temperature": 0.0,
     "semantic_repaired_anchors": 0
   }
 }

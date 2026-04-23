@@ -1,0 +1,68 @@
+TOP RULES (ABSOLUTE):
+- If you cannot provide >= 1 anchors, set relevant=false and anchors=[].
+- allowed_para_ids count = 4. Only use those para_ids.
+
+SYSTEM / OUTPUT CONTRACT (NON-NEGOTIABLE):
+1) Output ONE JSON object ONLY matching the schema.
+2) Use ONLY allowed keys.
+3) Do NOT echo input JSON or evidence paragraphs.
+4) You MUST choose anchor.para_id ONLY from Input JSON allowed_para_ids.
+5) If you cannot meet anchors_required=1, set relevant=false, anchors=[], precedent_score<=40, use_mode="contrast".
+6) If relevant=true, return 1..4 anchors (never 0).
+
+You are a legal precedent verifier.
+
+
+Return STRICT JSON ONLY. No markdown. No commentary. One JSON object.
+
+ALLOWED KEYS ONLY (exactly these keys, no extras):
+relevant, precedent_score, confidence, anchors, use_mode,
+proposition_winner, appeal_outcome, successful_party, distinguishers,
+note, retrieval_score, retrieval_method
+
+Schema:
+{
+  "relevant": true|false,
+  "precedent_score": 0-100,
+  "confidence": 0-100,
+  "anchors": [
+    {"para_id": "p00001", "quote": "verbatim substring", "why_it_matters": "short"}
+  ],
+  "use_mode": "support|contrast|harmful",
+  "proposition_winner": "claimant|respondent|mixed|unclear",
+  "appeal_outcome": "allowed|dismissed|remitted|mixed|unknown",
+  "successful_party": "claimant|respondent|mixed|unclear",
+  "distinguishers": ["..."],
+  "note": "ONE sentence",
+  "retrieval_score": number|null,
+  "retrieval_method": "string|null"
+}
+
+Hard rules (NON-NEGOTIABLE):
+- anchors[].para_id MUST be one of the provided allowed_para_ids values (exact match).
+- anchors[].quote MUST be a verbatim substring of that paragraph text (copy/paste exact).
+- anchors[].quote MUST be SINGLE-LINE (no newline characters) and <= 240 characters.
+- anchors[].quote MUST be the MINIMUM necessary snippet (do NOT paste the entire paragraph).
+- anchors[].quote MUST NOT contain markdown fences or labels like "Para:"/"Paragraph:".
+- anchors[].why_it_matters MUST be SINGLE-LINE and <= 20 words.
+- If relevant=true then anchors MUST be non-empty and MUST directly support the matched_X you selected.
+- If you cannot provide >= anchors_required anchors, set relevant=false, anchors=[], precedent_score<=40.
+- If relevant=true then use_mode MUST be "support".
+- If relevant=false then use_mode MUST be "contrast".
+- Do NOT invent parties/outcomes: if not explicitly stated in the provided paras, use "unclear"/"unknown".
+- precedent_score and confidence MUST be integers in 0..100. If unknown, use 0.
+- note MUST be a single short sentence (or "No relevant information found.").
+- IMPORTANT SCOPE GUARD: Do NOT treat remedy/compensation/medical causation (ill-health, loss, Polkey, contributory fault)
+  as support for X1–X3 unless AtomQuery explicitly targets REMEDY. If remedy-focused, set relevant=false.
+COPY PROTOCOL (MANDATORY):
+- When you create an anchor.quote, you MUST copy-paste text EXACTLY from the paragraph.
+- Do NOT paraphrase. Do NOT retype from memory. Do NOT change apostrophes/quotes.
+- The quote MUST appear as a contiguous substring in that paragraph.
+- If you cannot comply, set relevant=false and anchors=[].
+
+
+OUTPUT JSON TEMPLATE (fill values, keep keys identical):
+{"relevant": false, "precedent_score": 0, "confidence": 0, "anchors": [], "use_mode": "contrast", "proposition_winner": "unclear", "appeal_outcome": "unknown", "successful_party": "unclear", "distinguishers": [], "note": "", "retrieval_score": null, "retrieval_method": null}
+
+Input JSON (DO NOT ECHO BACK):
+{"atom": {"atom_id": "X5", "x_tests": ["X5"], "proposition": "Performance Evaluation Reinforcement", "positive_indicators": ["interim performance evaluation", "continue working on projects", "no corrective instruction", "reinforced priorities"], "excludes": ["general feedback", "routine evaluation"], "keyword_seeds": ["interim performance evaluation", "continue working on projects", "no corrective instruction", "reinforced priorities"], "expansion_terms": []}, "doc_id": "1._Mr_G_Lepiarz__2._Mr_D_Lewis_v__Trades_Union_Congress_-_2200228-2023___2200230-2023", "doc_meta": {}, "anchors_required": 1, "anchors_max": 4, "allowed_para_ids": ["p00015", "p00016", "p00019", "p00021"], "paras": [{"para_id": "p00015", "text": "been adamant that he had not given the impression that the service was being provided by the TUC  and that he had suggested a number of suppliers Case Numbers: 2200228/2023 and 2200230/2023 12 29.  Later that day, a t 16:46, Mr  Rowan emailed Ms Dixon, asking her to ‘swiftly’ start a disciplinary investigation against the claimant s in light of the issues brought to his attention by Mr  Gurney. Ms Quiney was copied in. Mr Rowan said that it had been brought to his attention that Newham Trades Council had received IT services provided by Mr Lepiarz and facilitated by Mr Lewis, offered in the name of the TUC and charged for. He said that ‘you may wish to consider swift action to prevent any TUC emails from being deleted.’ 30. On 1 December 2021, Mr Gurney sent to Mr Rowan various of the emails he had been sent by Ms Dye, which included Mr Lewis and Mr Lepiarz’s emails of 29 and 30 November 2021.  There were also emails exchanged between Ms Dye and Mr Lewis, with Mr Lepiarz copied in.   Ms Dye wrote to say that it was terrible that Lloyds had made a banking error and perhaps a solicitor was needed to help with it. She said that she was deeply saddened that the claimants were both aggravated and annoyed with her . She was upset about the damage to their TUC working relationship. She provided her bank details. Mr Lewis wrote back to say that the money would be paid to Ms Dye and he hoped the matter could be closed. Ms Dye wrote again to say that hopefully the bank matter could be sorted out and they could all go back to normal. It was a sad situation and Lloyds bank was to blame for it 31. Ms Dixon sp oke with Mr Rowan and advised him that suspension was appropriate. The reasons she gave the Tribunal for that advice were that there"}, {"para_id": "p00016", "text": "was an allegation of financial impropriety and an indication that TUC email addresses had been used . She said that the suspension was necessary to secure and preserve evidence. 32. It was put to Ms Dixon in cross examination that emails deleted from TUC email addresses could be retrieved. She agreed that she now understood that to be the case . Ms Quiney’s evidence was that at the time she believed that the emails would be permanently deleted but she subsequently learned they were retained in the cloud for six months.  It was apparent to us that neither at the time of suspension nor subsequently did any relevant person investigate ways of preserving email evidence. 33. Mr Rowan spoke with Ms Quiney and they sought approval for the suspensions from Mr Nowak which was granted . Mr Nowak said that he was asked to approve the suspension s  so that any relevant ev idence could be preserved and a fair and thorough investigation could be pursued  and because of reputational risk to the respondent. 34. Mr Lepiarz was working in the office that day so Ms Dixon went to see him and informed him of hi s suspension in person. Mr Lewis was working remotely so Ms Dixon telephoned him. She made notes of the points she planned to cover in the discussions in advance and the claimants were provided with those notes, to which she added some notes of points they raised. The manner of the suspensions gave rise to grievances which we discuss below. 35. Ms Dixon’s notes were as follows: Case Numbers: 2200228/2023 and 2200230/2023 13 Suspension Notes – Grzegorz Lepiarz: 1 December 2021 • Meeting relates to information received by management regarding alleged misconduct • Allegation regarding Newham Trades Council and provision of paid IT services • In light of"}, {"para_id": "p00019", "text": "management: • that you allegedly brokered and facilitated services for Grzegorz Lepiarz, Conference Assistant in C ongress Centre, to provide IT services to Newham Trades Council, which he allegedly charged them for 39. Ms Dixon also sent the claimants a copy of  the respondent’s ICT Acceptable Use policy and wrote to Mr Lepiarz saying that she had arranged to have access to his TUC email on 7 December in his presence after the investigation hearing. 40. That policy contained the following relevant sections: 2 ICT facilities are intended for TUC activity, so information sent out, received or accessed should be fo r this purpose. There may be some personal use of email and internet, and staff making personal use of these facilities must do so appropriately, in a responsible manner, and in a way that will not potentially bring the TUC into disrepute or place the indi vidual or the TUC in breach of statutory or other legal obligations. Personal use should not be excessive and must not interfere with the individual's job performance or the provision of TUC services.  Staff should not store personal files on TUC equipment  or systems. Staff should not use the TUC’s ICT to make personal commercial gain or conduct a personal business. 4. Not using ICT to undermine TUC’s reputation Staff should not use TUC ICT to undermine the TUC’s reputation, brand, values or policies on equal opportunities or dignity at work.  This includes using ICT whether anonymous or otherwise to • Bully, harass or abuse anyone, whether a member of the staff or of the public – see also the TUC’s Dignity at Work Policy/Social Media Policy • Cause the TUC to be accused of making libellous or defamatory remarks • Access, download, send or receive any data including images which TUC"}, {"para_id": "p00021", "text": "manager in accordance with TUC internal processes and the law.  See the Data Protection Policy for more information including on our approach to monitoring and management access. 41. On 6 December 202 , Mr Lewis sent a letter to Ms Dixon raising a range of issues and saying that due to the pa ndemic and his health he would not be attending the meeting on 8 December 2021. Ms Dixon wrote to Mr Lepiarz that day rescheduling his investigation meeting for 9 December 2021. 42. Mr Lewis sent Ms Dixon two letters on 7 December 2021 raising a number of issues about process. He sa id that he should  only be contacted by post  and should receive no phone calls.  Mr Lepiarz sent Ms Dixon a sick certificate signing him off with anxiety from 6 to 13 December 2021. 43. On 8 December 2021, Ms Dixon invited Mr Lewis to a re-scheduled disciplinary investigation meeting on 15 December 2021. 44. On 9 December 2021, Ms Dixon spoke with Ms Dye as part of the disciplinary investigation (p229-234). We saw typed no tes which Ms Dixon said had been written up f rom handwritten notes. The latter had n ot been disclosed in the Tribunal proceedings if they still existed.  On this date Ms Dye agreed to her investigation notes being provided to  the claimants.  These notes were later sent to Ms Dye and her additional comments recorded. 45. On 12 December 2021 Ms Dye wrote to Mr Lewis, copying Mr Lepiarz: I can confirm that, I have seen this email regarding zoom. Also, I hope Greg was able to be successful with Lloyds bank last Monday. I noticed in the previous emails, it is said that, Greg set -up the website for Newham Trades Council two years ago. This is not true. It is a great pity that money and the website has made all these problems and destroyed a good working relationship we had."}], "retrieval": {"method": "sliding_window", "score": 4.0, "matched_paras": 18, "k": 4, "min_hits": 1, "window_size": 12, "stride": 12, "top_windows": 1, "est_total_windows": 7, "picked_windows": [{"start": 12, "end": 24, "score": 5}]}, "mode": "verify"}

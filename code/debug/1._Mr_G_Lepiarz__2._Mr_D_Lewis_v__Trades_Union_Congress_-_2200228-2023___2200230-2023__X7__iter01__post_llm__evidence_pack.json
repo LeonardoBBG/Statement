@@ -1,0 +1,40 @@
+{
+  "doc_id": "1._Mr_G_Lepiarz__2._Mr_D_Lewis_v__Trades_Union_Congress_-_2200228-2023___2200230-2023",
+  "doc_meta": {},
+  "paras": [
+    {
+      "para_id": "p00006",
+      "text": "with designing and sending out  flyers and business cards. These services Case Numbers: 2200228/2023 and 2200230/2023 6 appear to have been beyond the assistance he would have been expected to provide to a trades council in his role with the respondent. 10. Sam Gurney is regional secretary for LESE. 11. Some time in the summer of 2020 there was contact between the Mr Lepiarz and Ms Dye as Ms Dye needed help w ith her computer. Mr Lepiarz offered to assist with setting up a new laptop but ultimately M s Dye did n ot take up the offer due to concerns about being visited or travelling during the pandemic. 12. At some point after that there were discussion about the creation of a website for Newham Trades Council. Mr Lepiarz created a website . There were some discussions about payment. 13.  On 24 March 202 1, Mr Lewis emailed Ms Dye from his TUC email address attaching an invoice. The message said ‘New invoice attached. This covers up until 31 December 2021.’ 14. On 21 April 2021, Mr Lewis sent Ms Dye an email with the subject Line ‘No cheque’ in which he wrote: Mayor (good morning) Greg has similar to Unity Trust with cheques He cannot receive cheque as I won't be able to cash it based on this invoice. Bank details are below: [Mr Lepiarz’s bank details] 15.  Ms Dye made a payment of £320  to Mr Lepiarz’s bank  but for reasons which later became apparent, Mr Lepiarz did n ot believe the sum had been received by him. There were problems with the website in summer 2021. 16. In October 2021 there were emails from Mr Lewis to Lloyds Bank , copying in Ms Dye, (Mr Lepiarz’s bank and also Ms Dye’s) complaining about the payment having gone missing. 17. On 10 and 11 November 2021, emails were exchanged between Mr Lewis and"
+    },
+    {
+      "para_id": "p00011",
+      "text": "the email in the manner of a letter with Ms Dye’s address. Given the role played Case Numbers: 2200228/2023 and 2200230/2023 9 by this email and Mr Lewis’ subsequent emails in the disciplinary proceedings we set them out in full: I’m contacting you regarding the web service provided to you from 7th October 2020 until 8th of October 2021. As you recall on 31st of March 2021 you have received an invoice for £320 to cover the cost of web hosting and domain cost only (which I paid on your behalf to Media Temple Inc – your service provider) for period from 7th October 2020 to December 2021) This is excluding the cost of 73 hours of web design and web administration (normally charge £30 I hour) which I was keen to provide pro bono for the cause however due to lack of appreciation and understanding from your side I terminated service on 8th October 2021. As you were aware, and I confirmed this today during our telephone conversation (Monday, 29th November 2021, 2.19pm), I never received the requested payment. However as I cannot afford any more time wasted on this and do not wish to discuss this matter any longer I’m willing to send you £320 to your account to conclude this matter. It is my understanding that for this matter to be closed once and for all you need to receive £320 to your bank account which you arguably sent to me. Please confirm that is what you required and please provide as soon as possible your bank details, full name of the account holder. Please also note that once you received £320 I will not accept any responsibility for this matter and if I receive any more communication from you directly or indirectly I will contact my solicitor for further advice. In the meantime I will contact the bank and decide on the next step how to"
+    },
+    {
+      "para_id": "p00005",
+      "text": "4. The respondent is a federation  of trade u nions. We were told that i t has something in the region of 200 employees . Most of the witnesse s we saw described themselves as trade union activists. 5. On 17 September 200 1, Mr Lewis commenced employment  with the department as a departmental secretary. 6.  On 4 June 2018, Mr Lepiarz started working for the respondent as a conference assistant. 7. The events which were the subject of the disciplinary charges the claimants faced occurred in 2020 – 2021. They concerned the provision of a website for Newham Trades Council. Ms J Dye is the secretary for Newham Trades Council and arrangements for the website were made between her and the claimants. It is not in dispute that a website was created for Newham Trades Council by Mr Lepiarz. Broadly speaking the parties agreed that at some stage the claimants asked for a payment from Ms Dye. The claimants say that the payment was to cover the cost s incurred by Mr Lepiarz in creating and maintaining the website. 8. We were told Newham Trades Council are ‘stakeholders’ in relation to the respondent. Trades councils are supported in their campaign wor k by the respondent. They pay a voluntary levy to register with the respondent and there is a grant fund they can submit bids for. We were told that they are not provided with ‘business support’, such as IT services. 9. Mr Lewis in his role would liaise with trades councils within his region, London, East and South East region (‘LESE’). Mr Lewis had a cordial relationship with Ms Dye and they used nicknames for one another (‘Mayor’ for Ms Dye, ‘Commander’ for Mr Lewis) in their email correspondence. He provided her with various services on a voluntary basis such as assistance with Zoom codes and"
+    },
+    {
+      "para_id": "p00010",
+      "text": "ago, pre covid, when she had mentioned having problems with her computer and subsequently had had difficulty accessing online EC meetings when the pandemic started. He said he had been clear that he knew a range of people who might be able to help and when he was then subsequently asked about support for creating a website he had said the same thing that there were a number of people who might be able to help. He was clear that he had not said anything that would have given the impression that the support was directly from the TUC. 22. On 29 November 2021, Mr Lewis wrote to Ms Dye: Please confirm you have seen this message regarding December Zoom please Unfortunately Jeanette, Out of respect for others who were trying their very best by Newham and being taken for granted, the December Zoom that was set up for me for Newham is no longer available. This means for 21 December Newham meeting the codes previously s ent to you are no longer valid – Newham will need to set it up your own Trades Council Zoom for December and 2022 onwards. I have a call with Sam at perhaps 4pm, which he may be disappointed by because the only information I have for Sam is – if anyone asks me a question for advice, be it website developers, I make a suggestion for people to approach, and the decision lies with those asking, being Newham in this case. Newham has had 2 -years of new direction assistance which is no longer. Your meetings as always remain advertised on TUC website going into 2022. Any future questions on meeting guest speakers or anything are best through the Regional Secretary direct. Many thanks. 23. Mr Lepiarz wrote to Ms Dye from his personal ‘Wanderblack’ email address at 17:37. He asked for bank details to pay the money back to Ms Dye. He opened"
+    }
+  ],
+  "retrieval": {
+    "method": "sliding_window",
+    "score": 16.0,
+    "matched_paras": 84,
+    "k": 4,
+    "min_hits": 1,
+    "window_size": 12,
+    "stride": 12,
+    "top_windows": 1,
+    "est_total_windows": 7,
+    "picked_windows": [
+      {
+        "start": 0,
+        "end": 12,
+        "score": 30
+      }
+    ]
+  }
+}

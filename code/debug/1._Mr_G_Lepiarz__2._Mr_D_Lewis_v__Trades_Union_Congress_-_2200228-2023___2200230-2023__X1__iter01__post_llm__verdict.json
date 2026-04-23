@@ -1,0 +1,36 @@
+{
+  "x_classification_basis": {
+    "target_atom_id": "X1",
+    "matched_X": [],
+    "relevant": false,
+    "use_mode": "contrast",
+    "precedent_score": 0,
+    "confidence": 0,
+    "note": "No relevant information found."
+  },
+  "verdict": {
+    "atom_id": "X1",
+    "doc_id": "1._Mr_G_Lepiarz__2._Mr_D_Lewis_v__Trades_Union_Congress_-_2200228-2023___2200230-2023",
+    "relevant": false,
+    "matched_X": [],
+    "precedent_score": 0,
+    "confidence": 0,
+    "anchors": [],
+    "use_mode": "contrast",
+    "proposition_winner": "unclear",
+    "appeal_outcome": "unknown",
+    "successful_party": "unclear",
+    "distinguishers": [],
+    "note": "No relevant information found.",
+    "retrieval_score": null,
+    "retrieval_method": null
+  },
+  "meta": {
+    "doc_id": "1._Mr_G_Lepiarz__2._Mr_D_Lewis_v__Trades_Union_Congress_-_2200228-2023___2200230-2023",
+    "atom_id": "X1",
+    "iter": 1,
+    "stage": "post_llm",
+    "llm_temperature": 0.0,
+    "semantic_repaired_anchors": 0
+  }
+}

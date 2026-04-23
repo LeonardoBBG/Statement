@@ -90,6 +90,7 @@ def _best_substring_snap(
     *,
     max_window_chars: int = 900,
     stride_chars: int = 60,
+    max_return_chars: int = 240,
 ) -> Optional[str]:
     """
     Deterministic "snap-to-verbatim":
@@ -132,7 +133,10 @@ def _best_substring_snap(
                 break
 
         if best is not None:
-            return best.strip()
+            best = best.strip()
+            if len(best) <= max_return_chars:
+                return best
+            return None
 
     # Fallback: token overlap scoring on windows (still deterministic)
     q_toks = set(_norm(quote).lower().split())
@@ -161,8 +165,10 @@ def _best_substring_snap(
         if e >= L:
             break
 
-    if best_w is not None and best_score >= 0.70:
-        return best_w.strip()
+    if best_w is not None and best_score >= 0.85:
+        best_w = best_w.strip()
+        if len(best_w) <= max_return_chars:
+            return best_w
 
     return None
 
@@ -262,6 +268,7 @@ class SemanticMemory:
 
         # cache: quote_hash -> list of candidate item indices
         self._query_cache: Dict[str, List[int]] = {}
+        self._query_cache_scores: Dict[str, List[Tuple[int, float]]] = {}
 
     
     def build(self, paras: List[Dict[str, str]]) -> None:
@@ -284,6 +291,7 @@ class SemanticMemory:
 
         self._vecs = self.embedder.embed(chunks) if chunks else None
         self._query_cache.clear()
+        self._query_cache_scores.clear()
 
     def _query_indices(self, text: str) -> List[int]:
         """
@@ -306,17 +314,12 @@ class SemanticMemory:
         qv = self.embedder.embed([text])[0]
         if qv is None:
             self._query_cache[key] = []
-            # side cache (optional)
-            if not hasattr(self, "_query_cache_scores"):
-                setattr(self, "_query_cache_scores", {})
             self._query_cache_scores[key] = []
             return []
 
         V = self._vecs
         if V.size == 0:
             self._query_cache[key] = []
-            if not hasattr(self, "_query_cache_scores"):
-                setattr(self, "_query_cache_scores", {})
             self._query_cache_scores[key] = []
             return []
 
@@ -325,8 +328,6 @@ class SemanticMemory:
         q_norm = float(np.linalg.norm(qv))
         if q_norm <= 0.0:
             self._query_cache[key] = []
-            if not hasattr(self, "_query_cache_scores"):
-                setattr(self, "_query_cache_scores", {})
             self._query_cache_scores[key] = []
             return []
 
@@ -348,9 +349,6 @@ class SemanticMemory:
 
         self._query_cache[key] = idxs
 
-        # Side-cache scores (optional but useful for thresholding later)
-        if not hasattr(self, "_query_cache_scores"):
-            setattr(self, "_query_cache_scores", {})
         self._query_cache_scores[key] = [(i, float(sims[i])) for i in idxs]
 
         return idxs
@@ -398,21 +396,15 @@ class SemanticMemory:
         if not idxs:
             return None
 
-        # Pull scores if available (populated by _query_indices)
+        # Pull scores populated by _query_indices
         key = _h(quote)
-        scored: List[Tuple[int, float]] = []
-        if hasattr(self, "_query_cache_scores"):
-            try:
-                scored = list(getattr(self, "_query_cache_scores").get(key, []))
-            except Exception:
-                scored = []
+        scored: List[Tuple[int, float]] = list(self._query_cache_scores.get(key, []))
 
         score_map: Dict[int, float] = {i: s for i, s in scored} if scored else {}
 
         # Similarity threshold for crossing para boundaries.
-        # With TF-IDF cosine, 0.80 is a decent "this is about the same sentence" gate.
-        # Tune later if needed.
-        cross_para_min_sim = 0.80
+        # Keep this strict because anchor repair must not become semantic substitution.
+        cross_para_min_sim = 0.90
 
         # Order indices: prefer same para_id if requested, then by similarity (if available), then stable index.
         def _rank(i: int) -> Tuple[int, float, int]:
@@ -500,8 +492,8 @@ class SemanticMemory:
             )
 
             if not got:
-                # If it was "close" but we couldn't snap, keep as-is (validator will likely reject).
-                # If it wasn't close, same outcome.
+                # If we cannot snap to a short verbatim quote, keep as-is and let downstream
+                # validation reject it rather than silently broadening the evidence span.
                 new_anchors.append(a)
                 continue
 

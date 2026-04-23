@@ -14,7 +14,7 @@
     "atom_id": "X3",
     "iter": 2,
     "stage": "pre_llm",
-    "llm_temperature": 0.1,
+    "llm_temperature": 0.0,
     "semantic_repaired_anchors": null
   }
 }
