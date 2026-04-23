@@ -1,12 +1,14 @@
 import sys
 import json
 import importlib
+import re
 import time
 from pathlib import Path
-from typing import List, Optional, Set, Tuple
+from typing import Any, Callable, List, Optional, Set, Tuple
 
 import pandas as pd
 import streamlit as st
+from needle_bridge import NeedleBridgeConfig, build_needle_run_plan
 
 # ==========================================================
 # MOLTIE RUNNER APP (DUAL-MODE / PDF-FIRST / RESUME-FIXED)
@@ -25,14 +27,52 @@ import streamlit as st
 # Constants / defaults
 # -------------------------
 REPO_ROOT = Path("/home/hello/Projects/Statements").resolve()
-DEFAULT_GROUPED_JOBS_PATH = REPO_ROOT / "output" / "grouped_jobs_df_all_modes.parquet"
 DEFAULT_OUT_DIR = REPO_ROOT / "output" / "moltie_batch"
+DEFAULT_GROUPED_JOBS_PATH = REPO_ROOT / "output" / "grouped_jobs_df_all_modes.parquet"
+DEFAULT_CSV_GROUPED_JOBS_PATH = DEFAULT_OUT_DIR / "grouped_jobs_csv_bridge.parquet"
+DEFAULT_MANUAL_GROUPED_JOBS_PATH = DEFAULT_OUT_DIR / "grouped_jobs_manual_y.parquet"
 
 CODE_ROOT = (REPO_ROOT / "code").resolve()
-Y_PATH = REPO_ROOT / "output" / "Y_inferred.json"
+ADAPTER_ROOT = (CODE_ROOT / "adapter").resolve()
+DEFAULT_Y_PATH = REPO_ROOT / "output" / "Y_inferred.json"
+DEFAULT_Y_MANUAL_PATH = REPO_ROOT / "output" / "Y_manual.json"
+BASE_MATCHES_ROOT = Path("/media/hello/Vault/Tribunals/_Matches").resolve()
+ET_INPUT_ROOT = Path("/media/hello/Vault/Tribunals/ET_Cases").resolve()
+NEEDLES_INPUT_ROOT = (REPO_ROOT / "input" / "needles").resolve()
+DEFAULT_WS_INPUT_CSV = REPO_ROOT / "input" / "Leonardo_WS_copy.csv"
+DEFAULT_WS_TEXT_COL = "text_verbatim"
+DEFAULT_Y_SPEC_PY = REPO_ROOT / "code" / "moltie" / "schemas" / "y_spec.py"
+
+DEFAULT_MATCHES_INDEX_BY_MODE = {
+    "offensive": BASE_MATCHES_ROOT / "offensive" / "_matches_index.csv",
+    "defensive": BASE_MATCHES_ROOT / "defensive" / "_matches_index.csv",
+}
+
+DEFAULT_WS_ENHANCED_BY_MODE = {
+    "offensive": REPO_ROOT / "output" / "Leonardo_WS_enhanced_offensive.csv",
+    "defensive": REPO_ROOT / "output" / "Leonardo_WS_enhanced_defensive.csv",
+}
+
+DEFAULT_NEEDLE_JSON_BY_MODE = {
+    "offensive": NEEDLES_INPUT_ROOT / "offensive_needles.json",
+    "defensive": NEEDLES_INPUT_ROOT / "defensive_needles.json",
+}
 
 DEFAULT_MODEL = "mistral-small3.2:latest"
 DEFAULT_OLLAMA_URL = "http://localhost:11434/api/generate"
+
+WORKFLOW_CONFIG = {
+    "CSV Bridge": {
+        "grouped_path": DEFAULT_CSV_GROUPED_JOBS_PATH,
+        "y_path": DEFAULT_Y_PATH,
+        "caption": "Legacy CSV bridge: ET matches + enhanced CSV + row-derived Y.",
+    },
+    "Manual JSON": {
+        "grouped_path": DEFAULT_MANUAL_GROUPED_JOBS_PATH,
+        "y_path": DEFAULT_Y_MANUAL_PATH,
+        "caption": "Manual Y workflow: grouped corpus built directly from Y_manual.json.",
+    },
+}
 
 
 # ==========================================================
@@ -142,6 +182,8 @@ def _ensure_sys_path():
     assert CODE_ROOT.exists(), f"Missing CODE_ROOT: {CODE_ROOT}"
     if str(CODE_ROOT) not in sys.path:
         sys.path.insert(0, str(CODE_ROOT))
+    if str(ADAPTER_ROOT) not in sys.path:
+        sys.path.insert(0, str(ADAPTER_ROOT))
 
 
 @st.cache_data(show_spinner=False)
@@ -182,9 +224,10 @@ def load_grouped_jobs(path: str) -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
-def load_y_rows() -> dict:
-    assert Y_PATH.exists(), f"Missing Y: {Y_PATH}"
-    y_root = json.loads(Y_PATH.read_text(encoding="utf-8"))
+def load_y_rows(path: str) -> dict:
+    y_path = Path(path)
+    assert y_path.exists(), f"Missing Y: {y_path}"
+    y_root = json.loads(y_path.read_text(encoding="utf-8"))
     rows = y_root.get("rows") or {}
     assert isinstance(rows, dict) and rows, "Y has no rows"
     return rows
@@ -212,6 +255,503 @@ def safe_to_dict(obj):
     if isinstance(obj, dict):
         return obj
     return {"repr": repr(obj)}
+
+
+def _load_needle_pack(mode: str) -> dict[str, Any]:
+    pack_path = DEFAULT_NEEDLE_JSON_BY_MODE[mode]
+    if not pack_path.exists():
+        raise FileNotFoundError(f"Missing needle pack: {pack_path}")
+    return json.loads(pack_path.read_text(encoding="utf-8"))
+
+
+def _compile_regex_buckets(raw: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], str]:
+    flag_map = {
+        "IGNORECASE": re.IGNORECASE,
+        "VERBOSE": re.VERBOSE,
+        "MULTILINE": re.MULTILINE,
+        "DOTALL": re.DOTALL,
+    }
+    compiled = {}
+    folder_map = {}
+    regex_only_folder_name = "_REGEX_ONLY"
+
+    for bucket_name, bucket_cfg in (raw or {}).items():
+        if not isinstance(bucket_cfg, dict) or not bucket_cfg.get("pattern"):
+            continue
+        flags = 0
+        for f_name in bucket_cfg.get("flags", []):
+            flags |= flag_map.get(str(f_name).upper().strip(), 0)
+        compiled[bucket_name] = re.compile(bucket_cfg["pattern"], flags)
+        folder_map[bucket_name] = bucket_cfg.get("folder_name", f"_{str(bucket_name).upper()}")
+        regex_only_folder_name = bucket_cfg.get("regex_only_folder_name", regex_only_folder_name)
+
+    return compiled, folder_map, regex_only_folder_name
+
+
+def _canonicalize_tag_local(tag: str) -> str:
+    s = str(tag).strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s
+
+
+def _compile_tag_spec_from_needles_json(mode: str) -> tuple[dict[str, Any], Path]:
+    source_path = DEFAULT_NEEDLE_JSON_BY_MODE[mode]
+    matches_root = (BASE_MATCHES_ROOT / mode).resolve()
+    matches_root.mkdir(parents=True, exist_ok=True)
+
+    payload = _load_needle_pack(mode)
+    needles_all = payload.get("needles_all", [])
+    needles_any = payload.get("needles_any", [])
+    regex_buckets = payload.get("regex_buckets", {})
+
+    reserved = {"any_needle", "none"}
+    tags = []
+    seen = set()
+
+    for raw_tag in needles_any:
+        if not isinstance(raw_tag, str):
+            continue
+        tag = _canonicalize_tag_local(raw_tag)
+        if not tag or tag in reserved or tag in seen:
+            continue
+        seen.add(tag)
+        tags.append(
+            {
+                "tag": tag,
+                "type": "needle_any",
+                "source": {"phrase": raw_tag},
+                "desc": f"keyword/phrase tag: '{raw_tag}'",
+                "corpus_column": f"has__{tag}",
+            }
+        )
+
+    for bucket_name, bucket_meta in regex_buckets.items():
+        if not isinstance(bucket_name, str) or not isinstance(bucket_meta, dict) or not bucket_meta.get("pattern"):
+            continue
+        tag = _canonicalize_tag_local(bucket_name)
+        if not tag or tag in reserved or tag in seen:
+            continue
+        seen.add(tag)
+        tags.append(
+            {
+                "tag": tag,
+                "type": "regex",
+                "source": {"name": bucket_name},
+                "desc": f"regex bucket: {tag.replace('_', ' ')}",
+                "corpus_column": f"has__{tag}",
+            }
+        )
+
+    spec = {
+        "version": "v1",
+        "compiled_from": str(source_path),
+        "compiled_mode": mode,
+        "needles_all_gate": needles_all,
+        "computed": ["any_needle", "none"],
+        "tags": tags,
+    }
+
+    out_path = matches_root / "_tag_spec.json"
+    out_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2), encoding="utf-8")
+    return spec, out_path
+
+
+def _build_allowed_tags_and_defs_from_spec(spec: dict[str, Any]) -> tuple[list[str], dict[str, str]]:
+    tag_list = []
+    seen = set()
+    for t in spec.get("tags", []):
+        tag = t.get("tag")
+        if not tag or tag in seen:
+            continue
+        seen.add(tag)
+        tag_list.append(tag)
+
+    computed = spec.get("computed", [])
+    allowed = []
+    if "any_needle" in computed:
+        allowed.append("any_needle")
+    allowed.extend(tag_list)
+    if "none" in computed:
+        allowed.append("none")
+
+    defs = {}
+    for t in spec.get("tags", []):
+        tag = t.get("tag")
+        if tag:
+            defs[tag] = (t.get("desc") or f"tag: {tag}").strip()
+    if "any_needle" in computed:
+        defs["any_needle"] = "computed: at least one non-none tag applies"
+    if "none" in computed:
+        defs["none"] = "none of the above apply"
+    return allowed, defs
+
+
+def _make_needle_prompt_builder(allowed_tags: list[str], tag_defs: dict[str, str]) -> Callable[[str], str]:
+    def make_needle_prompt(text: str) -> str:
+        model_allowed = [t for t in allowed_tags if t != "any_needle"]
+        tag_lines = "\n".join([f'- "{t}": {tag_defs.get(t, "")}' for t in model_allowed])
+        return f"""
+TASK:
+Given TEXT, select all applicable TAGS from the allowed list.
+
+CRITICAL TAG RULE:
+- Each "tag" value MUST be EXACTLY one of the strings in ALLOWED_TAGS.
+- Do NOT invent new tag names.
+- Do NOT output "any_needle".
+- If uncertain, return ONLY ["none"].
+
+ALLOWED_TAGS:
+{tag_lines}
+
+RULES:
+- For every selected tag (except "none"), provide confidence, negation, and evidence_quote.
+- If you cannot quote evidence from TEXT, do NOT select that tag.
+- Return VALID JSON ONLY.
+
+TEXT:
+<<<
+{text.strip()}
+>>>
+
+OUTPUT JSON SCHEMA:
+{{
+  "selected": [
+    {{"tag": "...", "confidence": 0.0, "negated": false, "evidence_quote": "..."}}
+  ]
+}}
+""".strip()
+
+    return make_needle_prompt
+
+
+def _pack_tests(g: pd.DataFrame) -> list[dict]:
+    seen = set()
+    out = []
+    for _, r in g.iterrows():
+        k = r["x_key"]
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(
+            {
+                "x_key": k,
+                "x_name": r["x_name"],
+                "x_scope": r["x_scope"],
+            }
+        )
+    return out
+
+
+def _build_grouped_jobs(run_plan_df: pd.DataFrame) -> pd.DataFrame:
+    if run_plan_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "row_id",
+                "y_row_id",
+                "et_path",
+                "precedent_mode",
+                "match_mode",
+                "matched_needles",
+                "x_tests",
+            ]
+        )
+
+    return (
+        run_plan_df
+        .groupby(["row_id", "y_row_id", "et_path", "precedent_mode", "match_mode"], dropna=False)
+        .apply(
+            lambda g: pd.Series(
+                {
+                    "matched_needles": sorted(set(g["matched_needle"].dropna())),
+                    "x_tests": _pack_tests(g),
+                }
+            ),
+            include_groups=False,
+        )
+        .reset_index()
+    )
+
+
+def _extract_x_tests(payload: dict) -> list[dict]:
+    if not isinstance(payload, dict):
+        return []
+
+    raw = payload.get("x_tests") or {}
+    out = []
+
+    if isinstance(raw, dict):
+        for x_key, x_obj in raw.items():
+            x_obj = x_obj or {}
+            out.append(
+                {
+                    "x_key": x_key,
+                    "x_name": x_obj.get("name", x_key),
+                    "x_scope": x_obj.get("scope", "GENERAL"),
+                }
+            )
+        return out
+
+    if isinstance(raw, list):
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            x_key = item.get("x_key") or item.get("key") or item.get("id")
+            if not x_key:
+                continue
+            out.append(
+                {
+                    "x_key": x_key,
+                    "x_name": item.get("x_name") or item.get("name") or x_key,
+                    "x_scope": item.get("x_scope") or item.get("scope") or "GENERAL",
+                }
+            )
+
+    return out
+
+
+def _iter_manual_y_records(path: Path):
+    root = json.loads(path.read_text(encoding="utf-8"))
+
+    if isinstance(root, dict) and isinstance(root.get("rows"), dict):
+        for y_row_id, row_obj in root["rows"].items():
+            yield y_row_id, row_obj or {}
+        return
+
+    if isinstance(root, dict) and isinstance(root.get("items"), list):
+        for i, row_obj in enumerate(root["items"], start=1):
+            row_obj = row_obj or {}
+            y_row_id = row_obj.get("y_row_id") or row_obj.get("id") or f"MANUAL_{i:04d}"
+            yield y_row_id, row_obj
+        return
+
+    if isinstance(root, list):
+        for i, row_obj in enumerate(root, start=1):
+            row_obj = row_obj or {}
+            y_row_id = row_obj.get("y_row_id") or row_obj.get("id") or f"MANUAL_{i:04d}"
+            yield y_row_id, row_obj
+        return
+
+    raise ValueError("Y_manual.json must be either {'rows': {...}}, {'items': [...]}, or a top-level list.")
+
+
+def _as_path_list(value) -> list[str]:
+    vals = as_list(value)
+    out = []
+    for v in vals:
+        if v is None:
+            continue
+        s = str(v).strip()
+        if s:
+            out.append(s)
+    return out
+
+
+def _extract_et_paths(row_obj: dict, payload: dict) -> list[str]:
+    candidates = [
+        row_obj.get("et_path"),
+        row_obj.get("pdf_path"),
+        row_obj.get("et_paths"),
+        row_obj.get("pdf_paths"),
+    ]
+    if isinstance(payload, dict):
+        candidates.extend(
+            [
+                payload.get("et_path"),
+                payload.get("pdf_path"),
+                payload.get("et_paths"),
+                payload.get("pdf_paths"),
+            ]
+        )
+
+    out = []
+    for cand in candidates:
+        out.extend(_as_path_list(cand))
+
+    deduped = []
+    seen = set()
+    for p in out:
+        if p in seen:
+            continue
+        seen.add(p)
+        deduped.append(p)
+    return deduped
+
+
+def create_grouped_jobs_from_csv_bridge(
+    *,
+    selected_modes: list[str],
+    y_path: Path,
+    out_path: Path,
+) -> pd.DataFrame:
+    grouped_frames = []
+
+    for mode in selected_modes:
+        cfg = NeedleBridgeConfig(
+            matches_index_csv=DEFAULT_MATCHES_INDEX_BY_MODE[mode],
+            match_frequencies_csv=None,
+            ws_enhanced_csv=DEFAULT_WS_ENHANCED_BY_MODE[mode],
+            y_inferred_json=y_path,
+            et_path_col="path",
+            ws_row_id_col="X1",
+            out_row_id_col="row_id",
+            y_row_prefix="X1_",
+            y_row_pad=4,
+            filter_ws_any_needle=True,
+            filter_et_any_needle=True,
+        )
+
+        out = build_needle_run_plan(cfg)
+        run_plan_df = out["run_plan_df"].copy()
+        run_plan_df["precedent_mode"] = mode
+
+        grouped_jobs_df = _build_grouped_jobs(run_plan_df)
+        grouped_jobs_df["precedent_mode"] = mode
+        grouped_frames.append(grouped_jobs_df)
+
+    combined_df = pd.concat(grouped_frames, ignore_index=True) if grouped_frames else pd.DataFrame()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    combined_df.to_parquet(out_path, index=False)
+    return combined_df
+
+
+def create_grouped_jobs_from_manual_y(
+    *,
+    y_manual_path: Path,
+    out_path: Path,
+) -> pd.DataFrame:
+    rows_out = []
+    missing_paths = []
+
+    for y_row_id, row_obj in _iter_manual_y_records(y_manual_path):
+        payload = row_obj.get("y") if isinstance(row_obj, dict) and isinstance(row_obj.get("y"), dict) else row_obj
+        payload = payload if isinstance(payload, dict) else {}
+
+        x_tests = _extract_x_tests(payload)
+        et_paths = _extract_et_paths(row_obj, payload)
+
+        if not et_paths:
+            missing_paths.append(y_row_id)
+            continue
+
+        row_id = row_obj.get("row_id") or payload.get("row_id") or y_row_id
+        precedent_mode = (
+            row_obj.get("precedent_mode")
+            or row_obj.get("mode")
+            or payload.get("precedent_mode")
+            or payload.get("mode")
+            or "manual"
+        )
+        match_mode = row_obj.get("match_mode") or payload.get("match_mode") or "MANUAL_Y"
+        matched_needles = row_obj.get("matched_needles") or row_obj.get("needles") or payload.get("matched_needles") or []
+
+        for et_path in et_paths:
+            rows_out.append(
+                {
+                    "row_id": row_id,
+                    "y_row_id": y_row_id,
+                    "et_path": et_path,
+                    "precedent_mode": str(precedent_mode),
+                    "match_mode": str(match_mode),
+                    "matched_needles": as_list(matched_needles),
+                    "x_tests": x_tests,
+                }
+            )
+
+    if missing_paths:
+        sample = ", ".join(missing_paths[:5])
+        raise ValueError(
+            "Manual Y records must include 'et_path'/'pdf_path' or 'et_paths'/'pdf_paths'. "
+            f"Missing for {len(missing_paths)} record(s), e.g. {sample}"
+        )
+
+    grouped_df = pd.DataFrame(rows_out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    grouped_df.to_parquet(out_path, index=False)
+    return grouped_df
+
+
+def apply_workflow_defaults(workflow: str) -> None:
+    cfg = WORKFLOW_CONFIG[workflow]
+    st.session_state["grouped_jobs_path"] = str(cfg["grouped_path"])
+    st.session_state["selected_y_path"] = str(cfg["y_path"])
+
+
+def _path_status_line(path: Path) -> str:
+    mark = "OK" if path.exists() else "Missing"
+    return f"- {mark}: `{path}`"
+
+
+def build_et_matches(mode: str) -> pd.DataFrame:
+    _ensure_sys_path()
+    import corpus_builder as cb_mod
+
+    importlib.reload(cb_mod)
+
+    needle_pack = _load_needle_pack(mode)
+    regex_buckets, regex_folder_map, regex_only_folder_name = _compile_regex_buckets(
+        needle_pack.get("regex_buckets", {})
+    )
+    matches_root = (BASE_MATCHES_ROOT / mode).resolve()
+
+    return cb_mod.run_corpus_builder(
+        input_root=ET_INPUT_ROOT,
+        matches_root=matches_root,
+        needles_all=needle_pack.get("needles_all", []),
+        needles_any=needle_pack.get("needles_any", []),
+        regex_buckets=regex_buckets,
+        regex_folder_map=regex_folder_map,
+        cfg_overrides=dict(
+            case_sensitive=False,
+            min_pages=4,
+            text_pages_head=100000,
+            text_pages_tail=0,
+            max_workers=24,
+            submit_chunk_size=2000,
+            preserve_structure=True,
+            master_csv_name="_matches_index.csv",
+            regex_only_folder_name=regex_only_folder_name,
+        ),
+    )
+
+
+def build_ws_enrichment(mode: str, model: str = DEFAULT_MODEL) -> pd.DataFrame:
+    _ensure_sys_path()
+    import y_runner_engine as yr_mod
+
+    importlib.reload(yr_mod)
+
+    spec, tag_spec_path = _compile_tag_spec_from_needles_json(mode)
+    allowed_tags, tag_defs = _build_allowed_tags_and_defs_from_spec(spec)
+    prompt_fn = _make_needle_prompt_builder(allowed_tags, tag_defs)
+
+    cfg = yr_mod.YRunnerConfig(
+        csv_path=DEFAULT_WS_INPUT_CSV,
+        text_col=DEFAULT_WS_TEXT_COL,
+        out_dir=(REPO_ROOT / "output").resolve(),
+        out_enhanced_csv=DEFAULT_WS_ENHANCED_BY_MODE[mode],
+        out_y_json=DEFAULT_Y_PATH,
+        y_spec_py=DEFAULT_Y_SPEC_PY,
+        model=model,
+        debug=False,
+        debug_slice="3",
+        needle_timeout=180,
+        y_spec_timeout=180,
+        matches_root=(BASE_MATCHES_ROOT / mode).resolve(),
+        master_csv_name="_match_frequencies.csv",
+        strict_schema_gate=True,
+        schema_gate_source="tag_spec",
+        tag_spec_path=tag_spec_path,
+    )
+
+    df_out, _, _ = yr_mod.run_y_pipeline(
+        cfg=cfg,
+        allowed_tags=allowed_tags,
+        tag_defs=tag_defs,
+        needle_prompt_fn=prompt_fn,
+        canonicalize_fn=yr_mod.canonicalize_tag,
+    )
+    return df_out
 
 
 def make_moltie_modules():
@@ -446,14 +986,201 @@ def build_pdf_task_groups(plan_jobs: pd.DataFrame) -> List[dict]:
 # ==========================================================
 st.set_page_config(page_title="Moltie Runner", layout="wide")
 st.title("Moltie Runner")
-st.caption("Run grouped precedent jobs with offensive / defensive mode awareness, preview controls, and safe resume behavior.")
+st.caption(
+    "Create a grouped corpus from either the legacy CSV bridge or a manual Y JSON, "
+    "then run Moltie with the same downstream execution flow."
+)
+
+if "grouped_jobs_path" not in st.session_state:
+    st.session_state["grouped_jobs_path"] = str(DEFAULT_CSV_GROUPED_JOBS_PATH)
+
+if "selected_y_path" not in st.session_state:
+    st.session_state["selected_y_path"] = str(DEFAULT_Y_PATH)
+
+if "active_workflow" not in st.session_state:
+    st.session_state["active_workflow"] = "CSV Bridge"
+
+if "workflow_last_applied" not in st.session_state:
+    st.session_state["workflow_last_applied"] = st.session_state["active_workflow"]
+    apply_workflow_defaults(st.session_state["active_workflow"])
+
+st.subheader("Workflow")
+st.caption("Select the workflow first. The app will align both corpus generation and corpus consumption to that workflow.")
+
+selected_workflow = st.radio(
+    "Workflow",
+    options=list(WORKFLOW_CONFIG.keys()),
+    horizontal=True,
+    key="active_workflow",
+)
+
+if st.session_state["workflow_last_applied"] != selected_workflow:
+    apply_workflow_defaults(selected_workflow)
+    st.session_state["workflow_last_applied"] = selected_workflow
+
+workflow_cfg = WORKFLOW_CONFIG[selected_workflow]
+
+status_left, status_right = st.columns([1, 1])
+status_left.info(
+    f"Active workflow: `{selected_workflow}`\n\n"
+    f"- Grouped parquet: `{st.session_state['grouped_jobs_path']}`\n"
+    f"- Y source: `{st.session_state['selected_y_path']}`"
+)
+status_right.caption(workflow_cfg["caption"])
+
+st.subheader("Prepare Inputs")
+st.caption("Upstream preparation stays explicit, but it is now connected to this app. Build the required inputs before creating the grouped corpus.")
+
+if selected_workflow == "CSV Bridge":
+    prep_modes = st.multiselect(
+        "Preparation modes",
+        options=["offensive", "defensive"],
+        default=["offensive", "defensive"],
+        help="These control ET harvesting and WS enhancement for the CSV bridge workflow.",
+    )
+
+    prep_left, prep_right = st.columns([1, 1])
+    prep_left.markdown("**CSV Bridge dependencies**")
+    prep_left.caption(f"ET source root: `{ET_INPUT_ROOT}`")
+    prep_left.caption(f"WS source CSV: `{DEFAULT_WS_INPUT_CSV}`")
+
+    for mode in ["offensive", "defensive"]:
+        prep_left.markdown(f"`{mode}`")
+        prep_left.caption(_path_status_line(DEFAULT_NEEDLE_JSON_BY_MODE[mode]))
+        prep_left.caption(_path_status_line(DEFAULT_MATCHES_INDEX_BY_MODE[mode]))
+        prep_left.caption(_path_status_line(DEFAULT_WS_ENHANCED_BY_MODE[mode]))
+        prep_left.caption(_path_status_line(BASE_MATCHES_ROOT / mode / "_tag_spec.json"))
+
+    prep_right.markdown("**Stage actions**")
+    prep_right.caption("1. Harvest ET matches. 2. Enrich WS and build row-derived Y. 3. Create grouped corpus.")
+
+    b1, b2 = prep_right.columns([1, 1])
+    if b1.button("Build ET Matches", key="prep_et_matches"):
+        if not prep_modes:
+            st.error("Select at least one preparation mode.")
+            st.stop()
+        try:
+            for mode in prep_modes:
+                df_matches = build_et_matches(mode)
+                st.success(f"ET matches built for {mode}: {DEFAULT_MATCHES_INDEX_BY_MODE[mode]}")
+                st.dataframe(df_matches.head(10), use_container_width=True, height=220)
+        except Exception as e:
+            st.error(f"Failed to build ET matches: {e}")
+            st.stop()
+
+    if b2.button("Build WS Enhanced + Y", key="prep_ws_enriched"):
+        if not prep_modes:
+            st.error("Select at least one preparation mode.")
+            st.stop()
+        try:
+            for mode in prep_modes:
+                df_ws = build_ws_enrichment(mode, model=DEFAULT_MODEL)
+                st.success(f"WS enriched for {mode}: {DEFAULT_WS_ENHANCED_BY_MODE[mode]}")
+                st.dataframe(df_ws.head(10), use_container_width=True, height=220)
+            st.session_state["selected_y_path"] = str(DEFAULT_Y_PATH)
+        except Exception as e:
+            st.error(f"Failed to build WS enhancement/Y: {e}")
+            st.stop()
+else:
+    st.info(
+        "Manual JSON workflow does not require ET matches or enhanced WS CSVs. "
+        "The only upstream requirement is a valid manual Y JSON with PDF linkage."
+    )
+    st.caption(_path_status_line(Path(st.session_state["selected_y_path"])))
+
+st.subheader("Create Corpus")
+st.caption("After input preparation, build the grouped-jobs parquet that the runner will consume.")
+
+create_left, create_right = st.columns([1, 1])
+
+if selected_workflow == "CSV Bridge":
+    csv_modes = create_left.multiselect(
+        "Precedent modes",
+        options=["offensive", "defensive"],
+        default=["offensive", "defensive"],
+        help="Build the grouped corpus from the legacy CSV/needle bridge for the selected modes.",
+    )
+    csv_y_path_raw = create_left.text_input(
+        "Row-derived Y JSON",
+        value=str(WORKFLOW_CONFIG["CSV Bridge"]["y_path"]),
+        help="Usually output/Y_inferred.json.",
+    ).strip()
+    csv_out_path_raw = create_right.text_input(
+        "Output grouped parquet",
+        value=str(WORKFLOW_CONFIG["CSV Bridge"]["grouped_path"]),
+        help="This parquet will be loaded by the runner below.",
+    ).strip()
+
+    with st.expander("CSV Bridge Inputs", expanded=False):
+        for mode in ["offensive", "defensive"]:
+            st.markdown(f"**{mode}**")
+            st.code(str(DEFAULT_MATCHES_INDEX_BY_MODE[mode]))
+            st.code(str(DEFAULT_WS_ENHANCED_BY_MODE[mode]))
+
+    if st.button("Create Corpus", type="secondary", key="create_corpus_csv"):
+        if not csv_modes:
+            st.error("Select at least one precedent mode.")
+            st.stop()
+
+        try:
+            grouped_df = create_grouped_jobs_from_csv_bridge(
+                selected_modes=csv_modes,
+                y_path=Path(csv_y_path_raw).expanduser().resolve(),
+                out_path=Path(csv_out_path_raw).expanduser().resolve(),
+            )
+            st.session_state["grouped_jobs_path"] = str(Path(csv_out_path_raw).expanduser().resolve())
+            st.session_state["selected_y_path"] = str(Path(csv_y_path_raw).expanduser().resolve())
+            st.success(f"Corpus created: {csv_out_path_raw}")
+            st.dataframe(grouped_df.head(20), use_container_width=True, height=260)
+        except Exception as e:
+            st.error(f"Failed to create CSV bridge corpus: {e}")
+            st.stop()
+
+else:
+    manual_y_path_raw = create_left.text_input(
+        "Manual Y JSON",
+        value=str(WORKFLOW_CONFIG["Manual JSON"]["y_path"]),
+        placeholder="/home/hello/Projects/Statements/output/Y_manual.json",
+        help="Manual Y records must include PDF path(s) via et_path/pdf_path or et_paths/pdf_paths.",
+    ).strip()
+    manual_out_path_raw = create_right.text_input(
+        "Output grouped parquet",
+        value=str(WORKFLOW_CONFIG["Manual JSON"]["grouped_path"]),
+        help="This parquet will be loaded by the runner below.",
+    ).strip()
+
+    st.info(
+        "Manual JSON mode bypasses the input CSV entirely. "
+        "Needles stay unchanged; the manual Y file becomes the Y-side source for the grouped corpus."
+    )
+
+    if st.button("Create Corpus", type="secondary", key="create_corpus_manual"):
+        try:
+            grouped_df = create_grouped_jobs_from_manual_y(
+                y_manual_path=Path(manual_y_path_raw).expanduser().resolve(),
+                out_path=Path(manual_out_path_raw).expanduser().resolve(),
+            )
+            st.session_state["grouped_jobs_path"] = str(Path(manual_out_path_raw).expanduser().resolve())
+            st.session_state["selected_y_path"] = str(Path(manual_y_path_raw).expanduser().resolve())
+            st.success(f"Corpus created: {manual_out_path_raw}")
+            st.dataframe(grouped_df.head(20), use_container_width=True, height=260)
+        except Exception as e:
+            st.error(f"Failed to create manual JSON corpus: {e}")
+            st.stop()
+
+st.divider()
 
 with st.sidebar:
     st.header("Inputs")
     grouped_path = st.text_input(
         "Grouped jobs path (.parquet or .csv)",
-        str(DEFAULT_GROUPED_JOBS_PATH),
+        key="grouped_jobs_path",
         help="Prefer the combined grouped jobs file so offensive and defensive jobs can be filtered in-app.",
+    )
+    y_path = st.text_input(
+        "Y source JSON",
+        key="selected_y_path",
+        help="Used at execution time to recover the Y object for each y_row_id.",
     )
     out_dir = Path(
         st.text_input(
@@ -733,6 +1460,9 @@ if RESUME_MODE:
 else:
     st.info(f"Output will be written to:\n\n`{out_path}`")
 
+st.caption(f"Active grouped corpus: `{grouped_path}`")
+st.caption(f"Active Y source: `{y_path}`")
+
 # -------------------------
 # Preview tables
 # -------------------------
@@ -778,7 +1508,7 @@ if run_clicked:
         st.code(str(out_path))
         st.stop()
 
-    rows = load_y_rows()
+    rows = load_y_rows(y_path)
 
     (
         RunConfig,
