@@ -1,0 +1,119 @@
+{
+  "role expectation mismatch": {
+    "pattern": "(?:role\\s+(?:expectation|definition|priorities|requirements)\\s+mismatch|expectation\\s+(?:mismatch|conflict)\\s+with\\s+role|role\\s+(?:change|shift)\\s+and\\s+(?:expectation|definition)\\s+(?:conflict|mismatch)|management\\s+(?:defined|reinforced)\\s+(?:priorities|expectations)\\s+against\\s+role)",
+    "flags": [
+      "IGNORECASE",
+      "VERBOSE"
+    ],
+    "seed_phrases": [
+      "role expectation mismatch",
+      "expectation conflict with role",
+      "role change and expectation mismatch",
+      "management defined priorities against role"
+    ],
+    "why_this_regex": "The regex captures variations of role and expectation mismatches, including changes in role definitions and conflicts between management's expectations and the role. It avoids generic legal terms by focusing on specific phrases from the evidence.",
+    "confidence": 0.8,
+    "regex_valid": true,
+    "n_quotes": 3,
+    "n_hits": 0,
+    "hit_rate": 0.0,
+    "accepted": false
+  },
+  "inconsistent reasoning": {
+    "pattern": "\\b(inconsistent|contradictory|incongruent|discrepant)\\s+(reasoning|logic|behavior|activities|endorsement)\\b",
+    "flags": [
+      "IGNORECASE",
+      "VERBOSE"
+    ],
+    "seed_phrases": [
+      "inconsistent reasoning",
+      "contradictory logic",
+      "incongruent behavior",
+      "discrepant activities",
+      "inconsistent endorsement"
+    ],
+    "why_this_regex": "The regex captures variations of inconsistent reasoning by including close linguistic variants like 'contradictory', 'incongruent', and 'discrepant' paired with terms like 'reasoning', 'logic', 'behavior', 'activities', and 'endorsement' as seen in the evidence quotes.",
+    "confidence": 0.7,
+    "regex_valid": true,
+    "n_quotes": 3,
+    "n_hits": 0,
+    "hit_rate": 0.0,
+    "accepted": false
+  },
+  "lack of contemporaneous guidance": {
+    "pattern": "\\b(?:lack|absence|absence of|no|no\\s+instruction|no\\s+direction)\\s+(?:contemporaneous|current|recent|up-to-date|real-time)\\s+(?:guidance|direction|instruction|advice)\\b",
+    "flags": [
+      "IGNORECASE",
+      "VERBOSE"
+    ],
+    "seed_phrases": [
+      "lack of contemporaneous guidance",
+      "absence of current direction",
+      "no real-time instruction",
+      "no up-to-date advice"
+    ],
+    "why_this_regex": "The regex captures variations of the core concept by allowing for synonyms of 'lack', 'contemporaneous', and 'guidance' as seen in the evidence. It avoids generic legal language by focusing on the specific context of guidance or direction lacking in real-time or current context.",
+    "confidence": 0.7,
+    "regex_valid": true,
+    "n_quotes": 2,
+    "n_hits": 0,
+    "hit_rate": 0.0,
+    "accepted": false
+  },
+  "lack of warning": {
+    "pattern": "(?i)(?x)\\b(?:not\\s+informed|no\\s+warning|no\\s+indication|no\\s+notice|not\\s+told)\\b.*\\b(?:risk|consequence|danger|hazard|threat)\\b",
+    "flags": [
+      "IGNORECASE",
+      "VERBOSE"
+    ],
+    "seed_phrases": [
+      "not informed that this manner of working carried any operational risk",
+      "no warning of potential consequence"
+    ],
+    "why_this_regex": "The regex captures variations of not being informed or warned about risks or consequences, which are close paraphrases of the seed phrase. It avoids generic legal language by focusing on the specific context of risks and consequences.",
+    "confidence": 0.7,
+    "regex_valid": true,
+    "n_quotes": 1,
+    "n_hits": 0,
+    "hit_rate": 0.0,
+    "accepted": false
+  },
+  "no contemporaneous guidance": {
+    "pattern": "\\bno\\s+contemporaneous\\s+guidance\\b|\\bno\\s+instruction\\s+to\\b|\\bno\\s+direction\\s+on\\b",
+    "flags": [
+      "IGNORECASE",
+      "VERBOSE"
+    ],
+    "seed_phrases": [
+      "no contemporaneous guidance",
+      "no instruction to",
+      "no direction on"
+    ],
+    "why_this_regex": "The regex captures the core idea of lacking specific guidance or instructions, as implied by the evidence. It includes close variants like 'no instruction to' and 'no direction on' to cover similar phrases without being overly generic.",
+    "confidence": 0.7,
+    "regex_valid": true,
+    "n_quotes": 1,
+    "n_hits": 0,
+    "hit_rate": 0.0,
+    "accepted": false
+  },
+  "disproportionate sanction": {
+    "pattern": "\\b(disproportionate\\s+sanction|excessive\\s+penalty|unfair\\s+disciplinary\\s+action)\\b",
+    "flags": [
+      "IGNORECASE",
+      "VERBOSE"
+    ],
+    "seed_phrases": [
+      "disproportionate sanction",
+      "excessive penalty",
+      "unfair disciplinary action"
+    ],
+    "why_this_regex": "The regex captures the core idea of an unfair or excessive penalty, which is implied by the evidence quote. It includes close variants like 'excessive penalty' and 'unfair disciplinary action' to cover similar concepts without being overly broad.",
+    "confidence": 0.5,
+    "regex_valid": true,
+    "n_quotes": 1,
+    "n_hits": 0,
+    "hit_rate": 0.0,
+    "accepted": false
+  }
+}

@@ -1,0 +1,1566 @@
+{
+  "version": "Y_inferred_v2",
+  "source": {
+    "csv": "/home/hello/Projects/Statements/input/Leonardo_WS.csv",
+    "text_col": "text_verbatim",
+    "model": "mistral-small3.2:latest"
+  },
+  "rows": {
+    "X1_0001": {
+      "row_index_1based": 1,
+      "doc": "Leonardo_WS.csv",
+      "y_ok": false,
+      "y": null,
+      "y_returncode": 1,
+      "y_stderr_head": "",
+      "y_stdout_head": "",
+      "timing": {
+        "needle_secs": 9.0,
+        "y_secs": 15.58
+      }
+    },
+    "X1_0002": {
+      "row_index_1based": 2,
+      "doc": "Leonardo_WS.csv",
+      "y_ok": true,
+      "y": {
+        "version": "Y_inferred_v2",
+        "x_tests": {
+          "X1": {
+            "name": "Role Definition and Priority Clarification",
+            "scope": "GENERAL",
+            "definition": "Management explicitly defines role priorities and confirms project work takes precedence over routine tasks.",
+            "pattern": "IF management documents confirm project work is prioritized over routine tasks and this is communicated to the employee THEN support X1",
+            "required_elements": [
+              "management documentation",
+              "project work prioritization",
+              "communication to employee",
+              "routine task deprioritization"
+            ],
+            "positive_indicators": [
+              "queue work not primary",
+              "projects take precedence",
+              "management confirmation"
+            ],
+            "excludes": [
+              "self-initiated projects",
+              "optional activities"
+            ]
+          },
+          "X2": {
+            "name": "Client-Facing Escalation Work",
+            "scope": "GENERAL",
+            "definition": "Employee is assigned complex, client-facing escalation work with regulatory sensitivity.",
+            "pattern": "IF management records describe the employee's role as involving direct client engagement on complex, regulatory-sensitive matters THEN support X2",
+            "required_elements": [
+              "client engagement",
+              "complex matters",
+              "regulatory sensitivity",
+              "management records"
+            ],
+            "positive_indicators": [
+              "client workflow",
+              "regulatory reporting",
+              "escalation-driven"
+            ],
+            "excludes": [
+              "ancillary tasks",
+              "optional work"
+            ]
+          },
+          "X3": {
+            "name": "Environment Switching Without Warning",
+            "scope": "GENERAL",
+            "definition": "Employee performs environment switching as part of assigned work without prior knowledge of adverse effects.",
+            "pattern": "IF the employee switches environments for work purposes without prior knowledge of adverse effects and no warning is given THEN support X3",
+            "required_elements": [
+              "environment switching",
+              "work purposes",
+              "no prior knowledge of adverse effects",
+              "no warning"
+            ],
+            "positive_indicators": [
+              "testing environments",
+              "validation workflows",
+              "no instruction on risks"
+            ],
+            "excludes": [
+              "self-directed switching",
+              "optional environment use"
+            ]
+          },
+          "X4": {
+            "name": "Management Endorsement of Work Practices",
+            "scope": "GENERAL",
+            "definition": "Management repeatedly endorses the employee's work practices without raising concerns.",
+            "pattern": "IF management repeatedly endorses the employee's work practices and does not raise concerns or provide corrective instructions THEN support X4",
+            "required_elements": [
+              "management endorsement",
+              "repeated occurrences",
+              "no concerns raised",
+              "no corrective instructions"
+            ],
+            "positive_indicators": [
+              "continued project work",
+              "no criticism in evaluations",
+              "extended hours endorsed"
+            ],
+            "excludes": [
+              "self-initiated changes",
+              "optional work adjustments"
+            ]
+          },
+          "X5": {
+            "name": "Excessive Workload Without Adjustment",
+            "scope": "GENERAL",
+            "definition": "Employee experiences excessive workload due to assigned priorities without management intervention.",
+            "pattern": "IF the employee experiences excessive workload due to assigned priorities and management does not intervene THEN support X5",
+            "required_elements": [
+              "excessive workload",
+              "assigned priorities",
+              "no management intervention"
+            ],
+            "positive_indicators": [
+              "extended hours",
+              "weekend work",
+              "regulatory pressure"
+            ],
+            "excludes": [
+              "self-imposed workload",
+              "optional tasks"
+            ]
+          }
+        },
+        "classes": {
+          "DIRECT_X": {
+            "definition": "Case directly supports the employee's claims based on management's documented role definitions and endorsements.",
+            "min_support": 1,
+            "evidence_required": true
+          },
+          "CONTRASTIVE": {
+            "definition": "Case presents conflicting evidence that contradicts the employee's claims or management's documented role definitions.",
+            "evidence_required": true
+          },
+          "REMEDY": {
+            "definition": "Case suggests potential remedies or corrective actions based on the documented role definitions and endorsements.",
+            "evidence_required": true
+          },
+          "IRRELEVANT": {
+            "definition": "Case does not provide relevant evidence to support or contradict the employee's claims or management's documented role definitions."
+          }
+        },
+        "hard_rules": [
+          "Evidence must be directly tied to management's documented role definitions and endorsements.",
+          "Conflicting evidence must be explicitly addressed in the case summary.",
+          "Remedies must be based on the documented role definitions and endorsements.",
+          "Irrelevant evidence must be excluded from the case summary."
+        ]
+      },
+      "y_returncode": 0,
+      "y_stderr_head": "",
+      "y_stdout_head": "",
+      "timing": {
+        "needle_secs": 2.82,
+        "y_secs": 13.0
+      }
+    },
+    "X1_0003": {
+      "row_index_1based": 3,
+      "doc": "Leonardo_WS.csv",
+      "y_ok": true,
+      "y": {
+        "version": "Y_inferred_v2",
+        "x_tests": {
+          "X1": {
+            "name": "Role Change Leading to Disciplinary Action",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Disciplinary action initiated after a role change without corresponding conduct changes",
+            "pattern": "IF a role change occurs and disciplinary action is initiated solely based on activities from the prior role THEN support X1",
+            "required_elements": [
+              "role change",
+              "disciplinary action initiated",
+              "activities from prior role",
+              "no change in conduct"
+            ],
+            "positive_indicators": [
+              "role change",
+              "disciplinary action",
+              "prior role activities",
+              "no conduct change"
+            ],
+            "excludes": [
+              "explicit demotion warning",
+              "conduct change noted"
+            ]
+          },
+          "X2": {
+            "name": "Inconsistent Role Expectations",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Disciplinary process applies junior role standards to senior role activities",
+            "pattern": "IF disciplinary action is based on applying junior role standards to senior role activities THEN support X2",
+            "required_elements": [
+              "disciplinary action",
+              "junior role standards",
+              "senior role activities",
+              "inconsistent application"
+            ],
+            "positive_indicators": [
+              "junior standards",
+              "senior activities",
+              "inconsistent treatment"
+            ],
+            "excludes": [
+              "role-specific guidelines provided"
+            ]
+          },
+          "X3": {
+            "name": "Lack of Contemporaneous Instruction",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Disciplinary action without prior instructions or guidance",
+            "pattern": "IF disciplinary action is taken without prior instructions or guidance on role changes THEN support X3",
+            "required_elements": [
+              "disciplinary action",
+              "no prior instructions",
+              "role change",
+              "lack of guidance"
+            ],
+            "positive_indicators": [
+              "no prior instructions",
+              "lack of guidance",
+              "role change"
+            ],
+            "excludes": [
+              "instructions given before disciplinary action"
+            ]
+          },
+          "X4": {
+            "name": "Retrospective Application of Standards",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Disciplinary action based on retrospective application of new role standards",
+            "pattern": "IF disciplinary action is based on retrospectively applying new role standards to past activities THEN support X4",
+            "required_elements": [
+              "disciplinary action",
+              "retrospective application",
+              "new role standards",
+              "past activities"
+            ],
+            "positive_indicators": [
+              "retrospective standards",
+              "past activities",
+              "new role"
+            ],
+            "excludes": [
+              "prospective application of standards"
+            ]
+          },
+          "X5": {
+            "name": "System Data Misinterpretation",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Disciplinary action relying on misinterpreted system data",
+            "pattern": "IF disciplinary action relies on system data without considering role differences THEN support X5",
+            "required_elements": [
+              "disciplinary action",
+              "system data reliance",
+              "role differences",
+              "misinterpretation"
+            ],
+            "positive_indicators": [
+              "system data",
+              "role differences",
+              "misinterpretation"
+            ],
+            "excludes": [
+              "system data properly contextualized"
+            ]
+          },
+          "X6": {
+            "name": "Managerial Encouragement of Role Change",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Role change encouraged by manager without demotion implications",
+            "pattern": "IF a role change is encouraged by a manager and not communicated as a demotion THEN support X6",
+            "required_elements": [
+              "role change",
+              "manager encouragement",
+              "no demotion communication",
+              "lack of seniority reduction"
+            ],
+            "positive_indicators": [
+              "manager encouragement",
+              "no demotion",
+              "role change"
+            ],
+            "excludes": [
+              "explicit demotion warning"
+            ]
+          },
+          "X7": {
+            "name": "Disciplinary Action Based on Role Change Alone",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Disciplinary action initiated solely due to role change",
+            "pattern": "IF disciplinary action is initiated solely due to a role change without any conduct changes THEN support X7",
+            "required_elements": [
+              "disciplinary action",
+              "role change",
+              "no conduct changes",
+              "sole cause"
+            ],
+            "positive_indicators": [
+              "role change cause",
+              "no conduct changes",
+              "disciplinary action"
+            ],
+            "excludes": [
+              "conduct changes noted"
+            ]
+          }
+        },
+        "classes": {
+          "DIRECT_X": {
+            "definition": "Case directly supports the claim of unfair disciplinary action due to role change",
+            "min_support": 1,
+            "evidence_required": true
+          },
+          "CONTRASTIVE": {
+            "definition": "Case provides evidence against the claim of unfair disciplinary action",
+            "evidence_required": true
+          },
+          "REMEDY": {
+            "definition": "Case suggests a remedy or corrective action for the unfair disciplinary process",
+            "evidence_required": true
+          },
+          "IRRELEVANT": {
+            "definition": "Case does not relate to the claim of unfair disciplinary action due to role change"
+          }
+        },
+        "hard_rules": [
+          "Evidence must directly relate to the role change and disciplinary action",
+          "Disciplinary action must be based on activities from the prior role",
+          "No conduct changes should be noted for the claim to be valid",
+          "Role change must be encouraged or supported by management"
+        ]
+      },
+      "y_returncode": 0,
+      "y_stderr_head": "",
+      "y_stdout_head": "",
+      "timing": {
+        "needle_secs": 3.68,
+        "y_secs": 15.53
+      }
+    },
+    "X1_0004": {
+      "row_index_1based": 4,
+      "doc": "Leonardo_WS.csv",
+      "y_ok": true,
+      "y": {
+        "version": "Y_inferred_v2",
+        "x_tests": {
+          "X1": {
+            "name": "Lack of Prior Notice of Disciplinary Meeting",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Failure to provide adequate notice of a disciplinary meeting, including agenda and purpose.",
+            "pattern": "IF a meeting is scheduled without prior notice of its disciplinary nature THEN support X1",
+            "required_elements": [
+              "meeting scheduled",
+              "no prior notice of disciplinary nature",
+              "no agenda provided",
+              "no explanation of purpose"
+            ],
+            "positive_indicators": [
+              "no agenda",
+              "no explanation",
+              "no indication of investigation",
+              "no prior notice"
+            ],
+            "excludes": [
+              "routine meeting",
+              "general team meeting"
+            ]
+          },
+          "X2": {
+            "name": "First Presentation of Allegations",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Allegations are raised for the first time during a disciplinary meeting without prior communication.",
+            "pattern": "IF allegations are presented for the first time during a meeting THEN support X2",
+            "required_elements": [
+              "allegations presented",
+              "first time during meeting",
+              "no prior communication",
+              "no prior warning"
+            ],
+            "positive_indicators": [
+              "first time",
+              "no prior information",
+              "raised during meeting",
+              "no prior notice"
+            ],
+            "excludes": [
+              "previously discussed issues",
+              "follow-up meeting"
+            ]
+          },
+          "X3": {
+            "name": "Inconsistent Explanations",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Investigators misinterpret explanations as inconsistent when they are actually consistent.",
+            "pattern": "IF investigators claim explanations are inconsistent when they are consistent THEN support X3",
+            "required_elements": [
+              "investigators claim inconsistency",
+              "explanations are consistent",
+              "misinterpretation by investigators"
+            ],
+            "positive_indicators": [
+              "inconsistent explanation",
+              "misinterpretation",
+              "consistent position"
+            ],
+            "excludes": [
+              "actual inconsistency",
+              "contradictory statements"
+            ]
+          },
+          "X4": {
+            "name": "Lack of Written Instructions",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "No written instructions were provided regarding working practices that later became a disciplinary issue.",
+            "pattern": "IF no written instructions were given for working practices THEN support X4",
+            "required_elements": [
+              "no written instructions",
+              "working practices in question",
+              "disciplinary issue later raised"
+            ],
+            "positive_indicators": [
+              "no written instruction",
+              "no explicit instruction",
+              "no written guidance"
+            ],
+            "excludes": [
+              "verbal instructions",
+              "general guidelines"
+            ]
+          },
+          "X5": {
+            "name": "Mischaracterization of System Effects",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "System effects were mischaracterized as 'crashes' without prior communication of this terminology.",
+            "pattern": "IF system effects are mischaracterized as 'crashes' without prior notice THEN support X5",
+            "required_elements": [
+              "system effects mentioned",
+              "mischaracterized as 'crashes'",
+              "no prior notice of terminology",
+              "no prior warning"
+            ],
+            "positive_indicators": [
+              "adverse system effects",
+              "crashes",
+              "no prior knowledge",
+              "no prior notice"
+            ],
+            "excludes": [
+              "previously discussed crashes",
+              "known terminology"
+            ]
+          }
+        },
+        "classes": {
+          "DIRECT_X": {
+            "definition": "Direct evidence supporting a claim of procedural unfairness or lack of due process.",
+            "min_support": 1,
+            "evidence_required": true
+          },
+          "CONTRASTIVE": {
+            "definition": "Evidence that contradicts or undermines a claim of procedural unfairness.",
+            "evidence_required": true
+          },
+          "REMEDY": {
+            "definition": "Evidence suggesting a potential remedy or corrective action.",
+            "evidence_required": true
+          },
+          "IRRELEVANT": {
+            "definition": "Evidence that does not support or contradict any claim of procedural unfairness."
+          }
+        },
+        "hard_rules": [
+          "Evidence must be directly related to the disciplinary process or meeting.",
+          "Contradictory evidence must be explicitly addressed.",
+          "Misinterpretations by investigators must be clearly identified.",
+          "Written instructions must be explicitly mentioned or absent."
+        ]
+      },
+      "y_returncode": 0,
+      "y_stderr_head": "",
+      "y_stdout_head": "",
+      "timing": {
+        "needle_secs": 3.38,
+        "y_secs": 12.63
+      }
+    },
+    "X1_0005": {
+      "row_index_1based": 5,
+      "doc": "Leonardo_WS.csv",
+      "y_ok": true,
+      "y": {
+        "version": "Y_inferred_v2",
+        "x_tests": {
+          "X1": {
+            "name": "Reassurance Without Qualification",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Unqualified reassurance given during a meeting indicating no further action will be taken.",
+            "pattern": "IF a meeting occurs where unqualified reassurance is given without indication of further action THEN support X1",
+            "required_elements": [
+              "meeting occurred",
+              "unqualified reassurance given",
+              "no indication of further action"
+            ],
+            "positive_indicators": [
+              "ok, it is fine, do not worry",
+              "no further action indicated",
+              "reassurance given"
+            ],
+            "excludes": [
+              "qualified reassurance",
+              "indication of further investigation"
+            ]
+          },
+          "X2": {
+            "name": "Reliance on Reassurance",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Reliance on reassurance leading to normal continuation of duties without preparation for disciplinary action.",
+            "pattern": "IF reassurance is given and relied upon to continue duties normally without preparation THEN support X2",
+            "required_elements": [
+              "reassurance given",
+              "reliance on reassurance",
+              "continuation of duties normally",
+              "no preparation for disciplinary action"
+            ],
+            "positive_indicators": [
+              "returned to desk",
+              "continued duties normally",
+              "no preparation for disciplinary action"
+            ],
+            "excludes": [
+              "preparation for disciplinary action",
+              "suspension from duties"
+            ]
+          },
+          "X3": {
+            "name": "Subsequent Conduct Indicating Closure",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Subsequent conduct by management indicating the matter is closed.",
+            "pattern": "IF management's subsequent conduct indicates the matter is closed THEN support X3",
+            "required_elements": [
+              "management's subsequent conduct",
+              "indication of matter closure",
+              "no further action taken"
+            ],
+            "positive_indicators": [
+              "continued to work without restriction",
+              "positive feedback",
+              "no adjustment to responsibilities"
+            ],
+            "excludes": [
+              "further investigation",
+              "disciplinary action taken"
+            ]
+          },
+          "X4": {
+            "name": "Contemporaneous Internal Correspondence",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Internal correspondence reinforcing the understanding that the matter is closed.",
+            "pattern": "IF contemporaneous internal correspondence reinforces the understanding that the matter is closed THEN support X4",
+            "required_elements": [
+              "contemporaneous internal correspondence",
+              "reinforcement of matter closure",
+              "positive feedback"
+            ],
+            "positive_indicators": [
+              "positive feedback regarding performance",
+              "no mention of investigation",
+              "tone inconsistent with disciplinary concern"
+            ],
+            "excludes": [
+              "mention of unresolved disciplinary concern",
+              "negative feedback"
+            ]
+          },
+          "X5": {
+            "name": "Objective Reasonableness of Conclusion",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Objective reasonableness of concluding the matter is closed based on reassurance and subsequent conduct.",
+            "pattern": "IF reassurance and subsequent conduct objectively support the conclusion that the matter is closed THEN support X5",
+            "required_elements": [
+              "reassurance given",
+              "subsequent conduct",
+              "objective reasonableness of conclusion"
+            ],
+            "positive_indicators": [
+              "objectively reasonable to conclude matter closed",
+              "no basis to anticipate disciplinary action",
+              "management acted consistently with closure"
+            ],
+            "excludes": [
+              "subjective interpretation",
+              "anticipation of disciplinary action"
+            ]
+          }
+        },
+        "classes": {
+          "DIRECT_X": {
+            "definition": "Direct evidence supporting the claim of reassurance, reliance, and subsequent conduct indicating closure of the matter.",
+            "min_support": 1,
+            "evidence_required": true
+          },
+          "CONTRASTIVE": {
+            "definition": "Evidence that contradicts the claim of reassurance, reliance, and subsequent conduct indicating closure of the matter.",
+            "evidence_required": true
+          },
+          "REMEDY": {
+            "definition": "Evidence suggesting a remedy or action based on the reassurance, reliance, and subsequent conduct.",
+            "evidence_required": true
+          },
+          "IRRELEVANT": {
+            "definition": "Evidence that does not pertain to the claim of reassurance, reliance, and subsequent conduct indicating closure of the matter."
+          }
+        },
+        "hard_rules": [
+          "Evidence must directly support or contradict the claim of reassurance, reliance, and subsequent conduct.",
+          "Objective reasonableness of the conclusion must be assessable from the evidence.",
+          "Contemporaneous internal correspondence must reinforce the understanding of matter closure.",
+          "Subsequent conduct by management must be consistent with the matter being closed."
+        ]
+      },
+      "y_returncode": 0,
+      "y_stderr_head": "",
+      "y_stdout_head": "",
+      "timing": {
+        "needle_secs": 2.56,
+        "y_secs": 13.39
+      }
+    },
+    "X1_0006": {
+      "row_index_1based": 6,
+      "doc": "Leonardo_WS.csv",
+      "y_ok": true,
+      "y": {
+        "version": "Y_inferred_v2",
+        "x_tests": {
+          "X1": {
+            "name": "Failure to Distinguish Queue Time",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "The analysis does not differentiate between crashes occurring during designated queue time and those occurring outside it.",
+            "pattern": "IF the analysis does not separate crashes by queue time status THEN support X1",
+            "required_elements": [
+              "crashes not distinguished by queue time",
+              "absence of queue time correlation",
+              "lack of timing data"
+            ],
+            "positive_indicators": [
+              "failure to distinguish queue time",
+              "crashes not correlated with queue time",
+              "no queue time differentiation"
+            ],
+            "excludes": [
+              "general mention of crashes",
+              "discussion of queue responsibilities"
+            ]
+          },
+          "X2": {
+            "name": "Absence of Verifiable Data",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "The analysis relies on high-level summary figures without providing underlying system logs.",
+            "pattern": "IF the analysis lacks underlying system logs and relies on summary figures THEN support X2",
+            "required_elements": [
+              "reliance on summary figures",
+              "absence of system logs",
+              "lack of detailed timing data"
+            ],
+            "positive_indicators": [
+              "no system logs provided",
+              "reliance on summary figures",
+              "absence of raw data"
+            ],
+            "excludes": [
+              "mention of data requests",
+              "general discussion of evidence"
+            ]
+          },
+          "X3": {
+            "name": "Misinterpretation of Crash Figures",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "The analysis misinterprets crash figures as inherently probative without context.",
+            "pattern": "IF the analysis treats crash figures as probative without context THEN support X3",
+            "required_elements": [
+              "crash figures treated as probative",
+              "lack of context",
+              "absence of workload consideration"
+            ],
+            "positive_indicators": [
+              "crash figures inherently probative",
+              "uncontextualised technical count",
+              "lack of workload context"
+            ],
+            "excludes": [
+              "discussion of crash causes",
+              "mention of ticket resolution"
+            ]
+          },
+          "X4": {
+            "name": "Inconsistent Inferences",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "The analysis draws internally inconsistent inferences from the data.",
+            "pattern": "IF the analysis draws inferences that contradict other evidence THEN support X4",
+            "required_elements": [
+              "inconsistent inferences",
+              "contradictory evidence",
+              "logical incompatibility"
+            ],
+            "positive_indicators": [
+              "internally inconsistent",
+              "logically incompatible",
+              "contradictory evidence"
+            ],
+            "excludes": [
+              "general discussion of evidence",
+              "mention of conclusions"
+            ]
+          },
+          "X5": {
+            "name": "Lack of Operational Impact Evidence",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "The analysis lacks evidence of operational impact linked to the alleged crashes.",
+            "pattern": "IF the analysis lacks evidence of operational impact from crashes THEN support X5",
+            "required_elements": [
+              "absence of operational impact evidence",
+              "lack of client impact data",
+              "no missed tickets evidence"
+            ],
+            "positive_indicators": [
+              "no operational impact",
+              "lack of client impact",
+              "no missed tickets"
+            ],
+            "excludes": [
+              "mention of crashes",
+              "general discussion of impact"
+            ]
+          },
+          "X6": {
+            "name": "Unsupported Conclusions",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "The analysis draws conclusions without sufficient supporting evidence.",
+            "pattern": "IF the conclusions are drawn without sufficient evidence THEN support X6",
+            "required_elements": [
+              "conclusions without evidence",
+              "assertions without proof",
+              "unsupported inferences"
+            ],
+            "positive_indicators": [
+              "conclusions unsupported",
+              "assertions without proof",
+              "inferences unsupported"
+            ],
+            "excludes": [
+              "mention of evidence",
+              "general discussion of conclusions"
+            ]
+          },
+          "X7": {
+            "name": "Incompatible Work Instructions",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "The analysis ignores instructions that the work method was known and not prohibited.",
+            "pattern": "IF the analysis ignores known work instructions THEN support X7",
+            "required_elements": [
+              "ignored work instructions",
+              "known work method",
+              "lack of prohibition"
+            ],
+            "positive_indicators": [
+              "ignored instructions",
+              "known work method",
+              "not prohibited"
+            ],
+            "excludes": [
+              "mention of work methods",
+              "general discussion of instructions"
+            ]
+          }
+        },
+        "classes": {
+          "DIRECT_X": {
+            "definition": "The case directly supports one or more of the atomic tests.",
+            "min_support": 1,
+            "evidence_required": true
+          },
+          "CONTRASTIVE": {
+            "definition": "The case contrasts with one or more of the atomic tests.",
+            "evidence_required": true
+          },
+          "REMEDY": {
+            "definition": "The case suggests a remedy or corrective action based on the atomic tests.",
+            "evidence_required": true
+          },
+          "IRRELEVANT": {
+            "definition": "The case does not relate to any of the atomic tests."
+          }
+        },
+        "hard_rules": [
+          "If a case supports at least one atomic test, it cannot be classified as IRRELEVANT.",
+          "If a case contradicts the evidence required for an atomic test, it must be classified as CONTRASTIVE.",
+          "If a case suggests a remedy based on the atomic tests, it must be classified as REMEDY.",
+          "If a case does not relate to any of the atomic tests, it must be classified as IRRELEVANT."
+        ]
+      },
+      "y_returncode": 0,
+      "y_stderr_head": "",
+      "y_stdout_head": "",
+      "timing": {
+        "needle_secs": 3.91,
+        "y_secs": 16.54
+      }
+    },
+    "X1_0007": {
+      "row_index_1based": 7,
+      "doc": "Leonardo_WS.csv",
+      "y_ok": true,
+      "y": {
+        "version": "Y_inferred_v2",
+        "x_tests": {
+          "X1": {
+            "name": "Inadequate Notice for Disciplinary Hearing",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Insufficient time provided to prepare for a disciplinary hearing, impacting the ability to gather evidence and secure representation.",
+            "pattern": "IF the notice period for a disciplinary hearing is less than three days AND it materially limits preparation AND no prior notification was given THEN support X1",
+            "required_elements": [
+              "notice period less than three days",
+              "materially limits preparation",
+              "no prior notification"
+            ],
+            "positive_indicators": [
+              "short notice",
+              "barely two days’ notice",
+              "limited ability to prepare"
+            ],
+            "excludes": [
+              "routine notice period",
+              "adequate time to prepare"
+            ]
+          },
+          "X2": {
+            "name": "Misrepresentation of Hearing Invitation",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Incorrect assertion about the timing of the disciplinary hearing invitation.",
+            "pattern": "IF the respondent claims a prior invitation date AND the actual invitation date is later AND there is no prior notification THEN support X2",
+            "required_elements": [
+              "claim of prior invitation date",
+              "actual invitation date is later",
+              "no prior notification"
+            ],
+            "positive_indicators": [
+              "misrepresented sequence",
+              "invitation issued later",
+              "no prior invitation"
+            ],
+            "excludes": [
+              "correct invitation date",
+              "prior notification provided"
+            ]
+          },
+          "X3": {
+            "name": "Defence Submission Before Hearing",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Submission of a written defence before the disciplinary hearing to ensure fair consideration.",
+            "pattern": "IF a written defence is submitted before the hearing AND it outlines core points AND relevant evidence is included THEN support X3",
+            "required_elements": [
+              "written defence submitted before hearing",
+              "core points outlined",
+              "relevant evidence included"
+            ],
+            "positive_indicators": [
+              "submitted defence in advance",
+              "core points explained",
+              "evidence considered"
+            ],
+            "excludes": [
+              "defence submitted after hearing",
+              "no evidence included"
+            ]
+          },
+          "X4": {
+            "name": "Defence Not Properly Engaged",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Failure to properly address the substance of the defence in the disciplinary outcome.",
+            "pattern": "IF the defence is submitted in good faith AND the disciplinary outcome does not address the substance of the points AND evidence raised THEN support X4",
+            "required_elements": [
+              "defence submitted in good faith",
+              "outcome does not address substance",
+              "evidence raised"
+            ],
+            "positive_indicators": [
+              "defence not engaged with",
+              "outcome did not address points",
+              "evidence ignored"
+            ],
+            "excludes": [
+              "defence properly addressed",
+              "substance considered"
+            ]
+          },
+          "X5": {
+            "name": "Objective Evidence of Work Ethic",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Presentation of objective evidence demonstrating a strong work ethic and commitment to responsibilities.",
+            "pattern": "IF objective evidence of work ethic is presented AND it demonstrates commitment to responsibilities AND it is relevant to the allegations THEN support X5",
+            "required_elements": [
+              "objective evidence presented",
+              "demonstrates commitment",
+              "relevant to allegations"
+            ],
+            "positive_indicators": [
+              "evidence of weekend badge swipes",
+              "strong performance evaluations",
+              "high work ethic"
+            ],
+            "excludes": [
+              "no objective evidence",
+              "irrelevant evidence"
+            ]
+          }
+        },
+        "classes": {
+          "DIRECT_X": {
+            "definition": "Directly supports the claim of procedural prejudice in the disciplinary process.",
+            "min_support": 1,
+            "evidence_required": true
+          },
+          "CONTRASTIVE": {
+            "definition": "Provides evidence that contradicts the claim of procedural prejudice.",
+            "evidence_required": true
+          },
+          "REMEDY": {
+            "definition": "Suggests a potential remedy or corrective action for the procedural prejudice.",
+            "evidence_required": true
+          },
+          "IRRELEVANT": {
+            "definition": "Does not relate to the claim of procedural prejudice in the disciplinary process."
+          }
+        },
+        "hard_rules": [
+          "If a test is supported, it must be clearly indicated in the summary.",
+          "Evidence must be explicitly mentioned to support or contradict the claim.",
+          "The summary must provide a clear reasoning_for_index for the classification.",
+          "If no evidence is provided, the case must be classified as IRRELEVANT."
+        ]
+      },
+      "y_returncode": 0,
+      "y_stderr_head": "",
+      "y_stdout_head": "",
+      "timing": {
+        "needle_secs": 3.52,
+        "y_secs": 13.41
+      }
+    },
+    "X1_0008": {
+      "row_index_1based": 8,
+      "doc": "Leonardo_WS.csv",
+      "y_ok": false,
+      "y": null,
+      "y_returncode": 1,
+      "y_stderr_head": "",
+      "y_stdout_head": "",
+      "timing": {
+        "needle_secs": 4.69,
+        "y_secs": 18.23
+      }
+    },
+    "X1_0009": {
+      "row_index_1based": 9,
+      "doc": "Leonardo_WS.csv",
+      "y_ok": true,
+      "y": {
+        "version": "Y_inferred_v2",
+        "x_tests": {
+          "X1": {
+            "name": "Insufficient Notice of Hearing",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Failure to provide adequate notice of a disciplinary hearing as per the Respondent’s own procedure.",
+            "pattern": "IF the notice period is less than three days and does not allow for meaningful preparation THEN support X1",
+            "required_elements": [
+              "notice period less than three days",
+              "lack of meaningful preparation time",
+              "failure to provide sufficient information about allegations"
+            ],
+            "positive_indicators": [
+              "two days’ notice",
+              "extremely short notice",
+              "insufficient time to prepare"
+            ],
+            "excludes": [
+              "informal notice",
+              "emergency circumstances"
+            ]
+          },
+          "X2": {
+            "name": "Failure to Provide Relevant Documents",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Failure to provide relevant documents in advance of the hearing as required by the Respondent’s procedure.",
+            "pattern": "IF relevant documents are not provided in advance and are necessary for preparation THEN support X2",
+            "required_elements": [
+              "documents not provided in advance",
+              "documents are relevant to the case",
+              "documents necessary for preparation"
+            ],
+            "positive_indicators": [
+              "not provided with underlying documents",
+              "no analysis correlating system crashes",
+              "no weekly logs provided"
+            ],
+            "excludes": [
+              "documents not requested",
+              "documents not available"
+            ]
+          },
+          "X3": {
+            "name": "Failure to Adjourn Hearing for Further Investigation",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Failure to adjourn the hearing to investigate new and material points raised during the hearing.",
+            "pattern": "IF new and material points are raised during the hearing and the hearing is not adjourned THEN support X3",
+            "required_elements": [
+              "new and material points raised",
+              "hearing not adjourned",
+              "points require further investigation"
+            ],
+            "positive_indicators": [
+              "new points concerning evidential deficiencies",
+              "hearing not adjourned",
+              "issues raised not investigated"
+            ],
+            "excludes": [
+              "points not material",
+              "investigation already completed"
+            ]
+          },
+          "X4": {
+            "name": "Inadequate Opportunity to Be Accompanied",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Failure to provide a fair opportunity to be accompanied as per the Respondent’s procedure.",
+            "pattern": "IF the notice period is insufficient to arrange accompaniment and no accommodation is offered THEN support X4",
+            "required_elements": [
+              "insufficient notice to arrange accompaniment",
+              "no accommodation offered",
+              "procedure requires opportunity to be accompanied"
+            ],
+            "positive_indicators": [
+              "could not arrange accompaniment",
+              "no accommodation offered",
+              "extremely short notice"
+            ],
+            "excludes": [
+              "accompaniment not requested",
+              "accompaniment not required"
+            ]
+          }
+        },
+        "classes": {
+          "DIRECT_X": {
+            "definition": "The case directly supports a claim of procedural unfairness based on the Respondent’s failure to comply with its own disciplinary procedure.",
+            "min_support": 1,
+            "evidence_required": true
+          },
+          "CONTRASTIVE": {
+            "definition": "The case highlights procedural deficiencies but does not directly support a claim of unfairness.",
+            "evidence_required": true
+          },
+          "REMEDY": {
+            "definition": "The case suggests a specific remedy or corrective action to address the procedural deficiencies.",
+            "evidence_required": true
+          },
+          "IRRELEVANT": {
+            "definition": "The case does not relate to procedural unfairness or the Respondent’s disciplinary procedure."
+          }
+        },
+        "hard_rules": [
+          "At least one test must be supported to classify as DIRECT_X",
+          "Evidence must be specific to the Respondent’s disciplinary procedure",
+          "General complaints about fairness without specific procedural violations do not count",
+          "The case must involve a disciplinary hearing to be relevant"
+        ]
+      },
+      "y_returncode": 0,
+      "y_stderr_head": "",
+      "y_stdout_head": "",
+      "timing": {
+        "needle_secs": 4.44,
+        "y_secs": 11.79
+      }
+    },
+    "X1_0010": {
+      "row_index_1based": 10,
+      "doc": "Leonardo_WS.csv",
+      "y_ok": true,
+      "y": {
+        "version": "Y_inferred_v2",
+        "x_tests": {
+          "X1": {
+            "name": "Premature Disclosure of Allegations",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Communication of contested allegations as established facts during an ongoing appeal",
+            "pattern": "IF an allegation is communicated as fact during an ongoing appeal THEN support X1",
+            "required_elements": [
+              "allegation communicated",
+              "appeal ongoing",
+              "allegation treated as fact",
+              "source is management"
+            ],
+            "positive_indicators": [
+              "allegation communicated as fact",
+              "appeal ongoing",
+              "management disclosure"
+            ],
+            "excludes": [
+              "informal speculation",
+              "unauthorized disclosure"
+            ]
+          },
+          "X2": {
+            "name": "Failure to Address Internal Dissemination",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "No action taken to address or investigate internal dissemination of allegations",
+            "pattern": "IF no steps are taken to address internal dissemination of allegations during appeal THEN support X2",
+            "required_elements": [
+              "internal dissemination",
+              "appeal ongoing",
+              "no corrective action"
+            ],
+            "positive_indicators": [
+              "no steps taken",
+              "internal dissemination",
+              "appeal process"
+            ],
+            "excludes": [
+              "informal discussions",
+              "unrelated communications"
+            ]
+          },
+          "X3": {
+            "name": "Predetermination Evidence",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Evidence suggesting the appeal outcome was predetermined",
+            "pattern": "IF management communicates allegations as fact during appeal THEN support X3",
+            "required_elements": [
+              "management communication",
+              "appeal ongoing",
+              "allegations treated as fact"
+            ],
+            "positive_indicators": [
+              "predetermined outcome",
+              "management communication",
+              "appeal ongoing"
+            ],
+            "excludes": [
+              "informal speculation",
+              "unrelated discussions"
+            ]
+          },
+          "X4": {
+            "name": "Breach of Confidentiality",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Unauthorized disclosure of confidential and personal information",
+            "pattern": "IF confidential information is disclosed to unauthorized parties THEN support X4",
+            "required_elements": [
+              "confidential information",
+              "unauthorized disclosure",
+              "appeal ongoing"
+            ],
+            "positive_indicators": [
+              "unauthorized disclosure",
+              "confidential information",
+              "appeal process"
+            ],
+            "excludes": [
+              "public information",
+              "authorized disclosures"
+            ]
+          },
+          "X5": {
+            "name": "Adverse Consequences of Disclosure",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Material and adverse consequences resulting from the disclosure",
+            "pattern": "IF disclosure leads to adverse professional consequences THEN support X5",
+            "required_elements": [
+              "disclosure",
+              "adverse consequences",
+              "professional impact"
+            ],
+            "positive_indicators": [
+              "damaged reputation",
+              "adverse consequences",
+              "professional impact"
+            ],
+            "excludes": [
+              "unrelated professional issues",
+              "informal discussions"
+            ]
+          },
+          "X6": {
+            "name": "Contextual Evidence of Procedural Failures",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Evidence of broader procedural failures and inconsistencies",
+            "pattern": "IF cumulative procedural failures are identified THEN support X6",
+            "required_elements": [
+              "procedural failures",
+              "cumulative evidence",
+              "appeal process"
+            ],
+            "positive_indicators": [
+              "procedural failures",
+              "cumulative evidence",
+              "appeal process"
+            ],
+            "excludes": [
+              "isolated incidents",
+              "unrelated issues"
+            ]
+          },
+          "X7": {
+            "name": "Lack of Fair and Open-Minded Process",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Evidence suggesting the disciplinary process was not fair or open-minded",
+            "pattern": "IF evidence supports an inference of unfair process THEN support X7",
+            "required_elements": [
+              "evidence of unfairness",
+              "appeal process",
+              "lack of open-mindedness"
+            ],
+            "positive_indicators": [
+              "unfair process",
+              "lack of open-mindedness",
+              "appeal process"
+            ],
+            "excludes": [
+              "isolated incidents",
+              "unrelated issues"
+            ]
+          }
+        },
+        "classes": {
+          "DIRECT_X": {
+            "definition": "Direct evidence supporting the core factual/legal signals in X",
+            "min_support": 1,
+            "evidence_required": true
+          },
+          "CONTRASTIVE": {
+            "definition": "Evidence that contrasts or undermines the core factual/legal signals in X",
+            "evidence_required": true
+          },
+          "REMEDY": {
+            "definition": "Evidence suggesting a remedy or corrective action is needed",
+            "evidence_required": true
+          },
+          "IRRELEVANT": {
+            "definition": "Evidence that does not support or contrast the core factual/legal signals in X"
+          }
+        },
+        "hard_rules": [
+          "Evidence must be directly related to the appeal process to support DIRECT_X",
+          "Contrastive evidence must directly undermine the core factual/legal signals in X",
+          "Remedy evidence must suggest a specific corrective action",
+          "Irrelevant evidence must not be related to the appeal process or core factual/legal signals in X"
+        ]
+      },
+      "y_returncode": 0,
+      "y_stderr_head": "",
+      "y_stdout_head": "",
+      "timing": {
+        "needle_secs": 5.14,
+        "y_secs": 15.1
+      }
+    },
+    "X1_0011": {
+      "row_index_1based": 11,
+      "doc": "Leonardo_WS.csv",
+      "y_ok": true,
+      "y": {
+        "version": "Y_inferred_v2",
+        "x_tests": {
+          "X1": {
+            "name": "Factual Basis for Allegations",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Test for whether the appeal challenges the factual basis of the allegations made against the appellant.",
+            "pattern": "IF the appeal explicitly denies the factual basis of allegations and provides evidence to contradict them THEN support X1",
+            "required_elements": [
+              "denial of allegations",
+              "evidence contradicting allegations",
+              "specific examples or data"
+            ],
+            "positive_indicators": [
+              "never avoided taking client tickets",
+              "no motive to avoid tickets",
+              "ticket-resolution statistics"
+            ],
+            "excludes": [
+              "general denial without evidence",
+              "vague assertions"
+            ]
+          },
+          "X2": {
+            "name": "Proportionality of Dismissal",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Test for whether the appeal argues that the dismissal was disproportionate to the alleged misconduct.",
+            "pattern": "IF the appeal argues that dismissal was disproportionate and provides comparative evidence or contextual factors THEN support X2",
+            "required_elements": [
+              "argument of disproportionality",
+              "comparative evidence",
+              "contextual factors"
+            ],
+            "positive_indicators": [
+              "proportionate and fair outcome",
+              "comparator evidence",
+              "consistent standard"
+            ],
+            "excludes": [
+              "general complaints about fairness",
+              "vague claims of disproportionality"
+            ]
+          },
+          "X3": {
+            "name": "Management Expectations",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Test for whether the appeal argues that the dismissal was based on a misunderstanding or misapplication of management expectations.",
+            "pattern": "IF the appeal argues that management expectations were misunderstood or misapplied and provides evidence of instructions or role definitions THEN support X3",
+            "required_elements": [
+              "argument of misunderstood expectations",
+              "evidence of instructions",
+              "role definitions"
+            ],
+            "positive_indicators": [
+              "expressly instructed to prioritise",
+              "conditional and secondary",
+              "explicit instructions"
+            ],
+            "excludes": [
+              "general claims of misunderstanding",
+              "vague references to expectations"
+            ]
+          },
+          "X4": {
+            "name": "Lack of Corrective Guidance",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Test for whether the appeal argues that no corrective guidance or warnings were provided before dismissal.",
+            "pattern": "IF the appeal argues that no corrective guidance or warnings were provided and provides evidence of lack of communication THEN support X4",
+            "required_elements": [
+              "argument of lack of guidance",
+              "evidence of no communication",
+              "specific examples"
+            ],
+            "positive_indicators": [
+              "no such clarification, warning, or corrective guidance",
+              "never asked me to submit",
+              "never directed me to implement"
+            ],
+            "excludes": [
+              "general claims of lack of communication",
+              "vague references to guidance"
+            ]
+          },
+          "X5": {
+            "name": "Comparator Evidence",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "Test for whether the appeal uses comparator evidence to challenge the consistency of the disciplinary decision.",
+            "pattern": "IF the appeal provides comparator evidence showing inconsistent treatment of similar cases THEN support X5",
+            "required_elements": [
+              "comparator evidence",
+              "inconsistent treatment",
+              "similar cases"
+            ],
+            "positive_indicators": [
+              "colleague holding the same corporate title",
+              "resolved one ticket over an entire year",
+              "fundamental inconsistency"
+            ],
+            "excludes": [
+              "general claims of inconsistency",
+              "vague references to comparators"
+            ]
+          }
+        },
+        "classes": {
+          "DIRECT_X": {
+            "definition": "The case directly supports the appeal's arguments with clear evidence and logical reasoning.",
+            "min_support": 1,
+            "evidence_required": true
+          },
+          "CONTRASTIVE": {
+            "definition": "The case contrasts the appeal's arguments with other evidence or standards to highlight inconsistencies.",
+            "evidence_required": true
+          },
+          "REMEDY": {
+            "definition": "The case suggests a specific remedy or corrective action based on the appeal's arguments.",
+            "evidence_required": true
+          },
+          "IRRELEVANT": {
+            "definition": "The case does not provide relevant evidence or reasoning to support the appeal's arguments."
+          }
+        },
+        "hard_rules": [
+          "Evidence must be specific and falsifiable to support any test.",
+          "General claims without specific evidence do not count towards any test.",
+          "Comparator evidence must involve similar roles and circumstances to be valid.",
+          "Lack of corrective guidance must be explicitly stated and supported by evidence."
+        ]
+      },
+      "y_returncode": 0,
+      "y_stderr_head": "",
+      "y_stdout_head": "",
+      "timing": {
+        "needle_secs": 4.12,
+        "y_secs": 13.47
+      }
+    },
+    "X1_0012": {
+      "row_index_1based": 12,
+      "doc": "Leonardo_WS.csv",
+      "y_ok": true,
+      "y": {
+        "version": "Y_inferred_v2",
+        "x_tests": {
+          "X1": {
+            "name": "Failure to Provide Timely Resolution",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "The respondent failed to provide a timely resolution to the appeal despite repeated requests and knowledge of the appellant's financial pressure.",
+            "pattern": "IF the respondent fails to provide a timely resolution to the appeal despite repeated requests and knowledge of the appellant's financial pressure THEN support X1",
+            "required_elements": [
+              "repeated requests for updates",
+              "knowledge of financial pressure",
+              "prolonged delay in resolution",
+              "lack of substantive response"
+            ],
+            "positive_indicators": [
+              "repeatedly requested updates",
+              "failed to engage meaningfully",
+              "prolonged period without clarity",
+              "timely resolution not provided"
+            ],
+            "excludes": [
+              "general delay without context of financial pressure"
+            ]
+          },
+          "X2": {
+            "name": "Lack of Genuine Reconsideration",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "The appeal outcome did not involve a genuine or open-minded reconsideration of the decision to dismiss.",
+            "pattern": "IF the appeal outcome fails to engage with central logical flaws and does not reconsider the decision to dismiss THEN support X2",
+            "required_elements": [
+              "failure to engage with central logical flaw",
+              "no genuine reconsideration",
+              "dismissal of key evidence",
+              "lack of open-minded review"
+            ],
+            "positive_indicators": [
+              "failed to engage with central logical flaw",
+              "no genuine reconsideration",
+              "dismissal of key evidence",
+              "lack of open-minded review"
+            ],
+            "excludes": [
+              "general criticism without specific evidence"
+            ]
+          },
+          "X3": {
+            "name": "Reliance on Unsupported Oral Recall",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "The appeal outcome relied on an unsupported oral recall without contemporaneous documentation.",
+            "pattern": "IF the appeal outcome relies on an unsupported oral recall without contemporaneous documentation THEN support X3",
+            "required_elements": [
+              "reliance on oral recall",
+              "lack of contemporaneous documentation",
+              "contradiction by performance evaluations",
+              "failure to address contradictions"
+            ],
+            "positive_indicators": [
+              "oral recall provided by team leader",
+              "unsupported by contemporaneous documentation",
+              "contradicted by performance evaluations",
+              "contradictions not addressed"
+            ],
+            "excludes": [
+              "general mention of oral evidence without context"
+            ]
+          },
+          "X4": {
+            "name": "Inconsistent and Unreasonable Reasoning",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "The appeal outcome contained inconsistent and unreasonable reasoning regarding the appellant's conduct.",
+            "pattern": "IF the appeal outcome contains inconsistent and unreasonable reasoning regarding the appellant's conduct THEN support X4",
+            "required_elements": [
+              "inconsistent reasoning",
+              "unreasonable conclusions",
+              "failure to explain contradictions",
+              "lack of rational basis"
+            ],
+            "positive_indicators": [
+              "inconsistent reasoning",
+              "unreasonable conclusions",
+              "failure to explain contradictions",
+              "lack of rational basis"
+            ],
+            "excludes": [
+              "general criticism without specific evidence"
+            ]
+          },
+          "X5": {
+            "name": "Failure to Reconcile Conclusions with Data",
+            "scope": "INTERNAL_DISCIPLINARY_APPEAL",
+            "definition": "The appeal outcome failed to reconcile its conclusions with the respondent's own data.",
+            "pattern": "IF the appeal outcome fails to reconcile its conclusions with the respondent's own data THEN support X5",
+            "required_elements": [
+              "failure to engage with performance metrics",
+              "incompatibility with own data",
+              "lack of investigation into comparator evidence",
+              "avoidance of assessment"
+            ],
+            "positive_indicators": [
+              "failed to engage with performance metrics",
+              "incompatibility with own data",
+              "lack of investigation into comparator evidence",
+              "avoidance of assessment"
+            ],
+            "excludes": [
+              "general mention of data without context"
+            ]
+          }
+        },
+        "classes": {
+          "DIRECT_X": {
+            "definition": "The appeal outcome demonstrates significant flaws and failures that directly impact the fairness of the dismissal.",
+            "min_support": 1,
+            "evidence_required": true
+          },
+          "CONTRASTIVE": {
+            "definition": "The appeal outcome contains elements that contrast with the appellant's evidence and arguments.",
+            "evidence_required": true
+          },
+          "REMEDY": {
+            "definition": "The appeal outcome requires remedial action due to its flaws and failures.",
+            "evidence_required": true
+          },
+          "IRRELEVANT": {
+            "definition": "The appeal outcome does not demonstrate significant flaws or failures that impact the fairness of the dismissal."
+          }
+        },
+        "hard_rules": [
+          "Evidence of financial pressure must be explicitly mentioned to support X1.",
+          "Failure to engage with central logical flaws must be explicitly mentioned to support X2.",
+          "Reliance on unsupported oral recall must be explicitly mentioned to support X3.",
+          "Inconsistent and unreasonable reasoning must be explicitly mentioned to support X4.",
+          "Failure to reconcile conclusions with data must be explicitly mentioned to support X5."
+        ]
+      },
+      "y_returncode": 0,
+      "y_stderr_head": "",
+      "y_stdout_head": "",
+      "timing": {
+        "needle_secs": 3.54,
+        "y_secs": 14.56
+      }
+    }
+  }
+}
