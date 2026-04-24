@@ -35,7 +35,7 @@ DEFAULT_MANUAL_GROUPED_JOBS_PATH = DEFAULT_OUT_DIR / "grouped_jobs_manual_y.parq
 CODE_ROOT = (REPO_ROOT / "code").resolve()
 ADAPTER_ROOT = (CODE_ROOT / "adapter").resolve()
 DEFAULT_Y_PATH = REPO_ROOT / "output" / "Y_inferred.json"
-DEFAULT_Y_MANUAL_PATH = REPO_ROOT / "output" / "Y_manual.json"
+DEFAULT_Y_MANUAL_PATH = REPO_ROOT / "output" / "debug_y" / "Y_manual.json"
 DEFAULT_Y_BY_MODE = {
     "offensive": REPO_ROOT / "output" / "Y_inferred_offensive.json",
     "defensive": REPO_ROOT / "output" / "Y_inferred_defensive.json",
@@ -74,7 +74,7 @@ WORKFLOW_CONFIG = {
     "Manual JSON": {
         "grouped_path": DEFAULT_MANUAL_GROUPED_JOBS_PATH,
         "y_path": DEFAULT_Y_MANUAL_PATH,
-        "caption": "Manual Y workflow: grouped corpus built directly from Y_manual.json.",
+        "caption": "Manual Y workflow: grouped corpus built directly from output/debug_y/Y_manual.json.",
     },
 }
 
@@ -156,18 +156,20 @@ def _safe_token(s: str) -> str:
     return token.strip("_") or "unknown"
 
 
-def _safe_int_list_tag(idxs: List[int], max_items: int = 20) -> str:
+def _safe_row_id_list_tag(idxs: List[Any], max_items: int = 20) -> str:
     """
-    Build a compact tag like 'Y_3' or 'Y_3_7_9'. Truncates if too many.
+    Build a compact tag for numeric or string row ids. Truncates if too many.
     """
     if not idxs:
         return "Y_NONE"
-    idxs = [int(i) for i in idxs]
+    idxs = [str(i).strip() for i in idxs if str(i).strip()]
+    if not idxs:
+        return "Y_NONE"
     if len(idxs) == 1:
-        return f"Y_{idxs[0]}"
+        return f"Y_{_safe_token(idxs[0])}"
     head = idxs[:max_items]
     tail_n = len(idxs) - len(head)
-    base = "Y_" + "_".join(str(i) for i in head)
+    base = "Y_" + "_".join(_safe_token(i) for i in head)
     if tail_n > 0:
         base += f"__plus_{tail_n}"
     return base
@@ -239,12 +241,12 @@ def load_y_rows(path: str) -> dict:
 
 def build_output_path(
     out_dir: Path,
-    selected_row_ids: List[int],
+    selected_row_ids: List[Any],
     selected_precedent_modes: List[str],
     debug: bool,
 ) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
-    row_tag = _safe_int_list_tag(selected_row_ids)
+    row_tag = _safe_row_id_list_tag(selected_row_ids)
     mode_tag = _safe_mode_tag(selected_precedent_modes)
     ts = time.strftime("%Y%m%d_%H%M%S")
     run_mode = "DEBUG" if debug else "BATCH"
@@ -536,7 +538,7 @@ def _iter_manual_y_records(path: Path):
             yield y_row_id, row_obj
         return
 
-    raise ValueError("Y_manual.json must be either {'rows': {...}}, {'items': [...]}, or a top-level list.")
+    raise ValueError("Manual Y JSON must be either {'rows': {...}}, {'items': [...]}, or a top-level list.")
 
 
 def _as_path_list(value) -> list[str]:
@@ -580,6 +582,30 @@ def _extract_et_paths(row_obj: dict, payload: dict) -> list[str]:
         seen.add(p)
         deduped.append(p)
     return deduped
+
+
+def _resolve_manual_source_jobs(row_obj: dict) -> pd.DataFrame:
+    source_rows = as_list(row_obj.get("source_inferred_rows"))
+    source_rows = [str(x).strip() for x in source_rows if str(x).strip()]
+    if not source_rows:
+        return pd.DataFrame()
+
+    source_grouped_path = Path(
+        row_obj.get("source_grouped_jobs_path")
+        or DEFAULT_GROUPED_JOBS_PATH
+    ).expanduser().resolve()
+    source_df = load_grouped_jobs(str(source_grouped_path)).copy()
+    if "y_row_id" not in source_df.columns:
+        raise ValueError(f"Grouped jobs source missing y_row_id: {source_grouped_path}")
+
+    source_df["y_row_id"] = source_df["y_row_id"].astype(str).str.strip()
+    matched = source_df[source_df["y_row_id"].isin(source_rows)].copy()
+    if matched.empty:
+        raise ValueError(
+            "Manual Y source_inferred_rows did not match any rows in grouped jobs source: "
+            f"{source_grouped_path}"
+        )
+    return matched
 
 
 def create_grouped_jobs_from_csv_bridge(
@@ -630,6 +656,7 @@ def create_grouped_jobs_from_manual_y(
 ) -> pd.DataFrame:
     rows_out = []
     missing_paths = []
+    source_resolution_errors = {}
 
     for y_row_id, row_obj in _iter_manual_y_records(y_manual_path):
         payload = row_obj.get("y") if isinstance(row_obj, dict) and isinstance(row_obj.get("y"), dict) else row_obj
@@ -637,10 +664,15 @@ def create_grouped_jobs_from_manual_y(
 
         x_tests = _extract_x_tests(payload)
         et_paths = _extract_et_paths(row_obj, payload)
+        source_jobs = pd.DataFrame()
 
         if not et_paths:
-            missing_paths.append(y_row_id)
-            continue
+            try:
+                source_jobs = _resolve_manual_source_jobs(row_obj)
+            except Exception as e:
+                source_resolution_errors[y_row_id] = str(e)
+                missing_paths.append(y_row_id)
+                continue
 
         row_id = row_obj.get("row_id") or payload.get("row_id") or y_row_id
         precedent_mode = (
@@ -653,28 +685,61 @@ def create_grouped_jobs_from_manual_y(
         match_mode = row_obj.get("match_mode") or payload.get("match_mode") or "MANUAL_Y"
         matched_needles = row_obj.get("matched_needles") or row_obj.get("needles") or payload.get("matched_needles") or []
 
-        for et_path in et_paths:
-            rows_out.append(
-                {
-                    "row_id": row_id,
-                    "y_row_id": y_row_id,
-                    "et_path": et_path,
-                    "precedent_mode": str(precedent_mode),
-                    "match_mode": str(match_mode),
-                    "matched_needles": as_list(matched_needles),
-                    "x_tests": x_tests,
-                    "y_source_path": str(y_manual_path),
-                }
-            )
+        if not source_jobs.empty:
+            for _, src in source_jobs.iterrows():
+                rows_out.append(
+                    {
+                        "row_id": row_id,
+                        "y_row_id": y_row_id,
+                        "et_path": str(src.get("et_path")),
+                        "precedent_mode": str(src.get("precedent_mode") or precedent_mode),
+                        "match_mode": str(src.get("match_mode") or match_mode),
+                        "matched_needles": as_list(src.get("matched_needles")),
+                        "x_tests": x_tests,
+                        "y_source_path": str(y_manual_path),
+                    }
+                )
+        else:
+            for et_path in et_paths:
+                rows_out.append(
+                    {
+                        "row_id": row_id,
+                        "y_row_id": y_row_id,
+                        "et_path": et_path,
+                        "precedent_mode": str(precedent_mode),
+                        "match_mode": str(match_mode),
+                        "matched_needles": as_list(matched_needles),
+                        "x_tests": x_tests,
+                        "y_source_path": str(y_manual_path),
+                    }
+                )
 
     if missing_paths:
         sample = ", ".join(missing_paths[:5])
+        sample_err = ""
+        if source_resolution_errors:
+            first_key = next(iter(source_resolution_errors))
+            sample_err = f" Example resolution error for {first_key}: {source_resolution_errors[first_key]}"
         raise ValueError(
-            "Manual Y records must include 'et_path'/'pdf_path' or 'et_paths'/'pdf_paths'. "
-            f"Missing for {len(missing_paths)} record(s), e.g. {sample}"
+            "Manual Y records must include explicit PDF paths or source_inferred_rows that resolve "
+            "against the grouped jobs source. "
+            f"Missing for {len(missing_paths)} record(s), e.g. {sample}.{sample_err}"
         )
 
     grouped_df = pd.DataFrame(rows_out)
+    if not grouped_df.empty:
+        grouped_df = (
+            grouped_df
+            .groupby(
+                ["row_id", "y_row_id", "et_path", "precedent_mode", "match_mode", "y_source_path"],
+                dropna=False,
+            )
+            .agg(
+                matched_needles=("matched_needles", lambda s: sorted({n for vals in s for n in as_list(vals)})),
+                x_tests=("x_tests", "first"),
+            )
+            .reset_index()
+        )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     grouped_df.to_parquet(out_path, index=False)
     return grouped_df
@@ -999,6 +1064,37 @@ def build_pdf_task_groups(plan_jobs: pd.DataFrame) -> List[dict]:
     return list(groups.values())
 
 
+def build_pdf_completion_df(
+    pdf_groups: List[dict],
+    completed_keys: Set[Tuple[str, str, str, str, str]],
+) -> pd.DataFrame:
+    rows = []
+    for group in pdf_groups:
+        pdf_path = group["pdf_path"]
+        tasks = group["tasks"]
+        expected_keys = {
+            make_resume_key(
+                precedent_mode=task.get("precedent_mode"),
+                row_id=task.get("row_id"),
+                y_row_id=task.get("y_row_id"),
+                et_path=str(pdf_path),
+                x_key=task.get("x_key"),
+            )
+            for task in tasks
+        }
+        done_keys = {k for k in expected_keys if k in completed_keys}
+        rows.append(
+            {
+                "pdf_path": str(pdf_path),
+                "planned_atoms": len(expected_keys),
+                "completed_atoms": len(done_keys),
+                "remaining_atoms": len(expected_keys - done_keys),
+                "status": "complete" if expected_keys and expected_keys <= completed_keys else "incomplete",
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 # ==========================================================
 # Streamlit UI
 # ==========================================================
@@ -1189,7 +1285,7 @@ with st.expander("Prepare Inputs And Create Corpus", expanded=not corpus_ready):
         manual_y_path_raw = create_left.text_input(
             "Manual Y JSON",
             value=str(WORKFLOW_CONFIG["Manual JSON"]["y_path"]),
-            placeholder="/home/hello/Projects/Statements/output/Y_manual.json",
+            placeholder="/home/hello/Projects/Statements/output/debug_y/Y_manual.json",
             help="Manual Y records must include PDF path(s) via et_path/pdf_path or et_paths/pdf_paths.",
         ).strip()
         manual_out_path_raw = create_right.text_input(
@@ -1464,6 +1560,7 @@ for group in all_pdf_groups:
 
 planned_pdfs = len(all_pdf_groups)
 remaining_pdfs = len(remaining_pdf_groups)
+pdf_completion_df = build_pdf_completion_df(all_pdf_groups, completed_keys) if all_pdf_groups else pd.DataFrame()
 
 # -------------------------
 # Plan summary
@@ -1504,6 +1601,13 @@ if RESUME_MODE:
         f"- Remaining PDFs to run: **{remaining_pdfs}**\n"
         f"- Output target: `{out_path}`"
     )
+    if not pdf_completion_df.empty:
+        st.markdown("**PDF completion**")
+        st.dataframe(
+            pdf_completion_df.sort_values(["status", "remaining_atoms", "pdf_path"], ascending=[True, False, True]),
+            use_container_width=True,
+            height=240,
+        )
 else:
     st.info(f"Output will be written to:\n\n`{out_path}`")
 
@@ -1606,6 +1710,7 @@ if run_clicked:
     })
 
     paras_cache = get_paras_cache()
+    rows_cache: dict[str, dict] = {}
 
     n_ok = 0
     n_neg = 0
@@ -1626,6 +1731,7 @@ if run_clicked:
         for group in remaining_pdf_groups:
             pdf_path = group["pdf_path"]
             pdf_tasks = group["tasks"]
+            pdf_rows_to_write = []
 
             prog.progress(
                 int((done_pdfs / max(total_pdfs, 1)) * 100),
@@ -1663,7 +1769,11 @@ if run_clicked:
                     )
 
                     try:
-                        rows_for_task = load_y_rows_by_path(task_y_source_path)
+                        cache_key = str(task_y_source_path)
+                        rows_for_task = rows_cache.get(cache_key)
+                        if rows_for_task is None:
+                            rows_for_task = load_y_rows_by_path(task_y_source_path)
+                            rows_cache[cache_key] = rows_for_task
 
                         if y_row_id not in rows_for_task:
                             raise KeyError(f"y_row_id not in Y.rows: {y_row_id}")
@@ -1709,9 +1819,7 @@ if run_clicked:
                             "iters": getattr(res, "iters", None),
                             "trace_tail": trace_tail,
                         }
-                        f.write(json.dumps(row_out, ensure_ascii=False) + "\n")
-                        f.flush()
-
+                        pdf_rows_to_write.append(row_out)
                         completed_keys.add(resume_key)
 
                     except Exception as e_x:
@@ -1730,9 +1838,7 @@ if run_clicked:
                             "y_source_path": str(task_y_source_path),
                             "error": repr(e_x),
                         }
-                        f.write(json.dumps(err_row, ensure_ascii=False) + "\n")
-                        f.flush()
-
+                        pdf_rows_to_write.append(err_row)
                         completed_keys.add(resume_key)
 
             except Exception as e_pdf:
@@ -1772,10 +1878,12 @@ if run_clicked:
                         "y_source_path": str(task_y_source_path),
                         "error": repr(e_pdf),
                     }
-                    f.write(json.dumps(err_row, ensure_ascii=False) + "\n")
-                    f.flush()
-
+                    pdf_rows_to_write.append(err_row)
                     completed_keys.add(resume_key)
+
+            for row in pdf_rows_to_write:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            f.flush()
 
             done_pdfs += 1
 

@@ -134,6 +134,8 @@ _VERDICT_JSON_SCHEMA = {
 }
 
 _MAX_RAW_OUTPUT_CHARS = 40_000
+_MAX_ANCHOR_QUOTE_CHARS = 240
+_MIN_ANCHOR_QUOTE_CHARS = 10
 
 
 @dataclass(frozen=True)
@@ -497,6 +499,43 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
         # fallback
         return "support" if relevant else "contrast"
 
+    def _compact_anchor_quote(
+        x: Any,
+        *,
+        min_chars: int = _MIN_ANCHOR_QUOTE_CHARS,
+        max_chars: int = _MAX_ANCHOR_QUOTE_CHARS,
+    ) -> str:
+        s = _as_str(x).replace("\r", " ").replace("\n", " ").strip()
+        s = re.sub(r"\s+", " ", s)
+        if not s:
+            return ""
+        if min_chars <= len(s) <= max_chars:
+            return s
+        if len(s) < min_chars:
+            return ""
+
+        # Prefer the shortest sentence-like span that already fits.
+        parts = re.split(r"(?<=[.!?;:])\s+", s)
+        fitting_parts = [
+            p.strip()
+            for p in parts
+            if p and min_chars <= len(p.strip()) <= max_chars
+        ]
+        if fitting_parts:
+            return min(fitting_parts, key=len)
+
+        # Otherwise, trim to a punctuation boundary before the hard cap.
+        cutoff = max_chars
+        puncts = [s.rfind(ch, 0, max_chars + 1) for ch in (".", ";", ":", ",")]
+        puncts = [p for p in puncts if p >= 40]
+        if puncts:
+            cutoff = max(puncts) + 1
+
+        trimmed = s[:cutoff].strip(" ,;:.")
+        if len(trimmed) >= min_chars:
+            return trimmed
+        return ""
+
     # ---------- core fields ----------
     obj["atom_id"] = _clean_str(obj.get("atom_id"))
     obj["doc_id"] = _clean_str(obj.get("doc_id"))
@@ -571,7 +610,7 @@ def _sanitize_verdict_object(obj: Dict[str, Any]) -> Dict[str, Any]:
         q_raw = a.get("quote", None)
         if q_raw is None:
             q_raw = a.get("text", None)
-        quote = _as_str(q_raw).strip()
+        quote = _compact_anchor_quote(q_raw)
 
         why = _clean_str(a.get("why_it_matters")) or "Relevant passage."
 
