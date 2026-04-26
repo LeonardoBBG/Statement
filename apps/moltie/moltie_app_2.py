@@ -1626,9 +1626,15 @@ with st.sidebar:
 
     WRITE_BACK_TO_SAME_FILE = st.toggle(
         "Append to same resume JSONL",
-        value=True,
+        value=False,
         disabled=not RESUME_MODE,
         help="If on, missing atoms are appended to the existing JSONL. If off, a new output file is created.",
+    )
+
+    SKIP_MISSING_PDFS = st.toggle(
+        "Skip missing PDFs before run",
+        value=True,
+        help="Prevents one FileNotFoundError row per atom when the grouped corpus references PDFs that are not mounted locally.",
     )
 
     st.divider()
@@ -1744,6 +1750,16 @@ if ONLY_X_KEY is not None and not plan_jobs.empty:
 
 if MAX_JOBS is not None and not plan_jobs.empty:
     plan_jobs = plan_jobs.head(int(MAX_JOBS)).copy()
+
+if SKIP_MISSING_PDFS and not plan_jobs.empty:
+    pdf_exists_mask = plan_jobs["et_path"].apply(lambda p: Path(str(p)).exists())
+    missing_pdf_jobs = int((~pdf_exists_mask).sum())
+    if missing_pdf_jobs:
+        missing_pdf_atoms = count_planned_atoms(plan_jobs.loc[~pdf_exists_mask])
+        st.warning(
+            f"Skipped {missing_pdf_jobs:,} grouped jobs / {missing_pdf_atoms:,} atoms because their PDFs are missing locally."
+        )
+        plan_jobs = plan_jobs.loc[pdf_exists_mask].copy()
 
 planned_atom_count = count_planned_atoms(plan_jobs)
 selected_modes_for_output = sorted(plan_jobs["precedent_mode"].dropna().astype(str).unique().tolist())

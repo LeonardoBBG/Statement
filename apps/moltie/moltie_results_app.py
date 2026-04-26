@@ -14,19 +14,77 @@ import streamlit as st
 # =========================================================
 # CONFIG / DEFAULTS
 # =========================================================
-DEFAULT_WORKBOOK = Path(
-    "/home/hello/Projects/Statements/output/moltie_batch/"
-    "batch_results_BATCH_mode_offensive_Y_2_20260412_135409__precedent_analysis.xlsx"
-)
-DEFAULT_FLAT_CSV = Path(
-    "/home/hello/Projects/Statements/output/moltie_batch/"
-    "batch_results_BATCH_mode_offensive_Y_2_20260412_135409__flat.csv"
-)
-DEFAULT_PDF_FREQ_CSV = Path(
-    "/home/hello/Projects/Statements/output/moltie_batch/"
-    "batch_results_BATCH_mode_offensive_Y_2_20260412_135409__pdf_frequency.csv"
-)
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_BATCH_ROOT = REPO_ROOT / "output" / "moltie_batch"
+CSV_WORKFLOW_DIR = DEFAULT_BATCH_ROOT / "csv"
+MANUAL_WORKFLOW_DIR = DEFAULT_BATCH_ROOT / "manual"
 DEFAULT_PDF_ROOT = Path("/media/hello/Vault/Tribunals/ET_Cases")
+
+WORKFLOW_CONFIG = {
+    "CSV Bridge": {
+        "dirs": [CSV_WORKFLOW_DIR, DEFAULT_BATCH_ROOT],
+        "caption": "CSV bridge result outputs from the WS/enhanced CSV workflow.",
+    },
+    "Manual JSON": {
+        "dirs": [MANUAL_WORKFLOW_DIR],
+        "caption": "Manual JSON result outputs from output/debug_y/Y_manual.json driven runs.",
+    },
+}
+
+
+def _is_real_workbook(path: Path) -> bool:
+    return (
+        path.is_file()
+        and path.name.endswith("__precedent_analysis.xlsx")
+        and not path.name.startswith(".~lock.")
+    )
+
+
+def _bundle_from_workbook(workbook: Path) -> dict[str, Path]:
+    base = workbook.with_name(workbook.name.removesuffix("__precedent_analysis.xlsx"))
+    return {
+        "workbook": workbook,
+        "flat_csv": base.with_name(base.name + "__flat.csv"),
+        "pdf_freq_csv": base.with_name(base.name + "__pdf_frequency.csv"),
+        "jsonl": base.with_suffix(".jsonl"),
+    }
+
+
+def discover_result_bundles(workflow: str) -> list[dict[str, Path]]:
+    cfg = WORKFLOW_CONFIG[workflow]
+    seen = set()
+    bundles = []
+    for directory in cfg["dirs"]:
+        if not directory.exists():
+            continue
+        for workbook in directory.glob("*__precedent_analysis.xlsx"):
+            if not _is_real_workbook(workbook):
+                continue
+            resolved = workbook.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            bundles.append(_bundle_from_workbook(resolved))
+    bundles.sort(key=lambda b: b["workbook"].stat().st_mtime, reverse=True)
+    return bundles
+
+
+def _latest_bundle_for_any_workflow() -> dict[str, Path]:
+    all_bundles = []
+    for workflow in WORKFLOW_CONFIG:
+        all_bundles.extend(discover_result_bundles(workflow))
+    if all_bundles:
+        all_bundles.sort(key=lambda b: b["workbook"].stat().st_mtime, reverse=True)
+        return all_bundles[0]
+
+    fallback = DEFAULT_BATCH_ROOT / "batch_results__precedent_analysis.xlsx"
+    return _bundle_from_workbook(fallback)
+
+
+DEFAULT_BUNDLE = _latest_bundle_for_any_workflow()
+DEFAULT_WORKBOOK = DEFAULT_BUNDLE["workbook"]
+DEFAULT_FLAT_CSV = DEFAULT_BUNDLE["flat_csv"]
+DEFAULT_PDF_FREQ_CSV = DEFAULT_BUNDLE["pdf_freq_csv"]
 
 st.set_page_config(
     page_title="MOLTIE Precedent Explorer",
@@ -253,6 +311,33 @@ def render_pdf(path: Path, height: int = 880) -> None:
     b64 = base64.b64encode(data).decode("utf-8")
     iframe = f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="{height}" type="application/pdf"></iframe>'
     st.markdown(iframe, unsafe_allow_html=True)
+
+
+def resolve_pdf_path(path_value, pdf_root_value: str) -> Optional[Path]:
+    if pd.isna(path_value) or not str(path_value).strip():
+        return None
+
+    raw = Path(str(path_value)).expanduser()
+    candidates = [raw]
+
+    pdf_root = Path(str(pdf_root_value)).expanduser()
+    if not raw.is_absolute():
+        candidates.append((REPO_ROOT / raw).resolve())
+        candidates.append((pdf_root / raw).resolve())
+
+    if raw.name:
+        candidates.append((pdf_root / raw.name).resolve())
+
+    seen = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.exists():
+            return candidate
+
+    return raw
 
 
 # =========================================================
@@ -491,9 +576,52 @@ def top_bar(df: pd.DataFrame, label_col: str, value_col: str, top_n: int = 12):
 # =========================================================
 with st.sidebar:
     st.markdown("### Inputs")
-    workbook_path = st.text_input("Precedent workbook", value=str(DEFAULT_WORKBOOK))
-    flat_csv_path = st.text_input("Flat CSV", value=str(DEFAULT_FLAT_CSV))
-    pdf_freq_csv_path = st.text_input("PDF frequency CSV (optional)", value=str(DEFAULT_PDF_FREQ_CSV))
+    workflow_names = list(WORKFLOW_CONFIG)
+    available_by_workflow = {name: discover_result_bundles(name) for name in workflow_names}
+    default_workflow = next((name for name in workflow_names if available_by_workflow[name]), workflow_names[0])
+    workflow = st.selectbox(
+        "Workflow",
+        options=workflow_names,
+        index=workflow_names.index(default_workflow),
+    )
+    st.caption(WORKFLOW_CONFIG[workflow]["caption"])
+
+    workflow_bundles = available_by_workflow[workflow]
+    if workflow_bundles:
+        bundle_labels = [
+            f"{b['workbook'].stem.removesuffix('__precedent_analysis')} ({b['workbook'].parent})"
+            for b in workflow_bundles
+        ]
+        bundle_i = st.selectbox(
+            "Result bundle",
+            options=list(range(len(workflow_bundles))),
+            format_func=lambda i: bundle_labels[i],
+        )
+        selected_bundle = workflow_bundles[int(bundle_i)]
+    else:
+        selected_bundle = _bundle_from_workbook(WORKFLOW_CONFIG[workflow]["dirs"][0] / "batch_results__precedent_analysis.xlsx")
+        checked_dirs = ", ".join(str(p) for p in WORKFLOW_CONFIG[workflow]["dirs"])
+        st.warning(f"No result bundles found for {workflow}. Checked: {checked_dirs}")
+
+    workflow_key = workflow.lower().replace(" ", "_")
+    bundle_key = selected_bundle["workbook"].stem.replace("__precedent_analysis", "")
+    workbook_path = st.text_input(
+        "Precedent workbook",
+        value=str(selected_bundle["workbook"]),
+        key=f"{workflow_key}_{bundle_key}_workbook_path",
+    )
+    flat_csv_path = st.text_input(
+        "Flat CSV",
+        value=str(selected_bundle["flat_csv"]),
+        key=f"{workflow_key}_{bundle_key}_flat_csv_path",
+    )
+    pdf_freq_csv_path = st.text_input(
+        "PDF frequency CSV (optional)",
+        value=str(selected_bundle["pdf_freq_csv"]),
+        key=f"{workflow_key}_{bundle_key}_pdf_freq_csv_path",
+    )
+    if selected_bundle.get("jsonl") and selected_bundle["jsonl"].exists():
+        st.caption(f"JSONL source: `{selected_bundle['jsonl']}`")
     pdf_root = st.text_input("PDF root", value=str(DEFAULT_PDF_ROOT))
 
     st.markdown("### Review controls")
@@ -635,12 +763,14 @@ with review_left:
         st.info("No supporting filtered rows found for this document in filtered_rows.")
 
 with review_right:
-    pdf_path_val = selected.get("et_path")
-    pdf_path = Path(str(pdf_path_val)) if pd.notna(pdf_path_val) and str(pdf_path_val).strip() else None
+    pdf_path = resolve_pdf_path(selected.get("et_path"), pdf_root)
     if pdf_path and pdf_path.exists():
         render_pdf(pdf_path, height=reader_height)
     else:
-        st.warning("PDF path not available or file not found. The ranked sheet needs a valid et_path for direct reading.")
+        st.warning(
+            "PDF path not available or file not found. The app tried the workbook et_path directly "
+            "and then the selected PDF root using the PDF filename."
+        )
 
 st.markdown("</div>", unsafe_allow_html=True)
 
