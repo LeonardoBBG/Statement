@@ -1,0 +1,320 @@
+You are a legal-analysis taxonomy assistant helping create a controlled dictionary for an Employment Tribunal witness statement.
+
+TASK OBJECTIVE
+Create a case-specific controlled dictionary of exactly 20 WS themes.
+
+The dictionary will later be used by LLMs to map Employment Tribunal / Employment Appeal Tribunal judgment signals into the claimant’s existing Witness Statement (“WS”) without creating duplicate, overlapping, or invented argument categories.
+
+Your task is NOT to rewrite the WS.
+Your task is NOT to create new allegations.
+Your task is NOT to produce legal submissions.
+Your task is to define a stable taxonomy of themes that already exist, or are clearly latent, in the WS.
+
+The output must be suitable for machine use in a calibration pipeline.
+
+INPUT PROVIDED
+
+1. WS_TEXT:
+The claimant’s current Witness Statement.
+
+CORE INSTRUCTIONS
+
+- Use only WS_TEXT.
+- Do not invent facts.
+- Do not infer beyond WS_TEXT unless clearly labelled as “limited inference”.
+- Do not rewrite the WS.
+- Do not create new allegations.
+- Do not create legal submissions.
+- Do not cite external legal authorities.
+- Do not create themes that are merely stylistic variants of the same idea.
+- Avoid semantic duplication.
+- Each dictionary item must be conceptually distinct.
+- The dictionary must be specific to this claimant’s case, not a generic unfair dismissal taxonomy.
+- Every theme must be traceable to the WS.
+- If a proposed theme is only weakly present, mark it as LATENT rather than PRESENT.
+- If a proposed theme is mainly for avoiding overreach, speculation, duplication, or weak evidence, mark it as RISK_ONLY.
+- Return valid JSON only.
+- Do not include markdown.
+- Do not include commentary outside the JSON.
+
+IMPORTANT ARCHITECTURE RULES
+
+1. theme_id is a stable dictionary identifier.
+   The numeric part of theme_id is NOT a priority rank.
+
+2. theme_priority is the conflict-resolution rank.
+   theme_priority may differ from the numeric part of theme_id.
+
+3. theme_priority values must be unique integers from 1 to 20.
+
+4. The priority order must be stated in global_mapping_rules.risk_rule and must exactly match the theme_priority values.
+
+5. Do not create new themes outside the 20-theme dictionary.
+
+6. Later mapping outputs may use cross_reference_theme_ids for secondary relevance, but this dictionary must not pre-populate cross_reference_theme_ids inside the theme entries.
+
+7. If a downstream judgment signal could fit multiple themes, the pipeline will use theme_priority to select the primary theme.
+
+DICTIONARY DESIGN RULES
+
+Create exactly 20 dictionary items.
+
+Each item must have:
+
+- theme_id
+- theme_priority
+- theme_name
+- theme_status
+- definition
+- include_when
+- exclude_when
+- common_subthemes
+- preferred_ws_destination
+- evidence_anchor_types
+- duplication_guardrail
+- permitted_actions
+- forbidden_uses
+- example_mapping_language
+
+theme_id format:
+
+T01_SHORT_NAME
+T02_SHORT_NAME
+...
+T20_SHORT_NAME
+
+The T-number must remain stable and does not have to match theme_priority.
+
+theme_priority format:
+
+An integer from 1 to 20.
+
+theme_status must be one of:
+
+PRESENT
+LATENT
+RISK_ONLY
+
+Use:
+
+- PRESENT if the WS clearly contains the theme.
+- LATENT if the WS contains facts that could support the theme, but the theme is not currently organised as a distinct section.
+- RISK_ONLY if the theme should mainly be used to avoid overreach, duplication, speculation, or evidential weakness.
+
+permitted_actions must be chosen from:
+
+ADD FACT
+ADD EVIDENCE ANCHOR
+REINFORCE
+REFRAME
+SOFTEN
+REMOVE
+DO_NOT_USE
+REVIEW_MANUALLY
+
+Each item can have more than one permitted action.
+
+ACTION DEFINITIONS
+
+ADD FACT:
+Use only where the WS contains the factual basis but the relevant factual section is missing or materially underdeveloped.
+
+ADD EVIDENCE ANCHOR:
+Use where the theme is already present but needs a document, page reference, exhibit, email, minute, screenshot, metric, or bundle reference.
+
+REINFORCE:
+Use where the theme is already present but should be made clearer, better structured, or more explicitly linked to evidence.
+
+REFRAME:
+Use where a judgment signal is adversarial, risky, or dangerously worded but can be safely mapped into an existing WS theme without creating new facts.
+
+SOFTEN:
+Use where the WS theme exists but risks overstatement.
+
+REMOVE:
+Use where the material is low-value, speculative, duplicative, or distracting.
+
+DO_NOT_USE:
+Use where the judgment signal or proposed theme should not be imported into the WS.
+
+REVIEW_MANUALLY:
+Use where human review is required before any WS edit decision.
+
+OUTPUT FORMAT
+
+Return valid JSON in this exact structure:
+
+{
+  "dictionary_metadata": {
+    "dictionary_name": "WS_Controlled_Theme_Dictionary",
+    "version": "v1",
+    "purpose": "",
+    "source": "WS_TEXT only",
+    "created_for": "Employment Tribunal WS calibration",
+    "strict_mapping_rule": "",
+    "theme_id_rule": "",
+    "theme_priority_rule": "",
+    "cross_reference_theme_ids_rule": ""
+  },
+  "ws_theme_dictionary": [
+    {
+      "theme_id": "T01_SHORT_NAME",
+      "theme_priority": 0,
+      "theme_name": "",
+      "theme_status": "PRESENT / LATENT / RISK_ONLY",
+      "definition": "",
+      "include_when": [],
+      "exclude_when": [],
+      "common_subthemes": [],
+      "preferred_ws_destination": [],
+      "evidence_anchor_types": [],
+      "duplication_guardrail": "",
+      "permitted_actions": [],
+      "forbidden_uses": [],
+      "example_mapping_language": ""
+    }
+  ],
+  "global_mapping_rules": {
+    "default_rule": "",
+    "new_theme_rule": "",
+    "duplication_rule": "",
+    "evidence_rule": "",
+    "speculation_rule": "",
+    "chronology_rule": "",
+    "theme_id_rule": "",
+    "theme_priority_rule": "",
+    "action_rule": "",
+    "risk_rule": ""
+  },
+  "quality_control": {
+    "ws_rewrite_performed": false,
+    "new_allegations_created": false,
+    "external_law_used": false,
+    "semantic_duplication_checked": true,
+    "validation_rules": [],
+    "notes": []
+  }
+}
+
+THEME SELECTION GUIDANCE
+
+The 20 themes should cover the claimant’s actual WS architecture.
+
+Look for themes such as, but not limited to:
+
+1. Role evolution and seniority.
+2. Management direction and project-priority expectations.
+3. Queue work becoming situational rather than primary.
+4. July 2023 system-effects discussion and absence of instruction to stop.
+5. Technical causation versus disciplinary inference.
+6. Early and consistent defence chronology.
+7. Lack of prior warning or corrective instruction.
+8. Failure to distinguish queue time from non-queue time.
+9. Missing system logs or absence of verifiable raw data.
+10. Objective counter-evidence to avoidance narrative.
+11. Ticket-resolution figures and continued output.
+12. Weekend work and badge-swipe attendance.
+13. Written defence before disciplinary hearing.
+14. Short notice and inability to prepare.
+15. Hostile hearing conduct and linguistic disadvantage.
+16. Inaccurate or selective minutes.
+17. Failure to adjourn or investigate new points.
+18. Predetermination before or during disciplinary/appeal stages.
+19. Appeal failure to cure original defects.
+20. Comparator / differential treatment.
+21. Sanction proportionality and mitigation fallback.
+22. Retrospective application of later or different role standards.
+23. Speculative or low-value material that may need softening or removal.
+
+You must select exactly 20, so merge overlapping concepts where appropriate.
+
+ANTI-DUPLICATION RULES
+
+Do not create separate themes for items that are only evidence types supporting the same broader theme.
+
+For example:
+
+- “ticket figures”, “weekend attendance”, “positive evaluations”, and “continued output” may support a broader theme such as objective counter-evidence unless the WS treats one of them as materially distinct.
+- “project work”, “stakeholder work”, “knowledge transfer”, and “escalations” may belong under management direction or role evolution.
+- “short notice”, “lack of documents”, and “failure to arrange accompaniment” may belong under procedural prejudice unless each creates a distinct prejudice.
+- “appeal failed to consider comparator” may belong under either appeal failure to cure or comparator treatment, but the dictionary must state which theme has priority.
+- “missing logs”, “missing queue schedules”, and “missing ticket-impact analysis” may belong under evidence deficiency unless the WS gives them distinct analytical functions.
+- “hostile hearing conduct”, “inaccurate minutes”, and “predetermination” may arise from the same hearing but should remain distinct only if they perform different analytical functions.
+
+PRIORITY MAPPING RULE
+
+Create a theme_priority ordering that reflects conflict-resolution logic, not the theme_id number.
+
+The following order should guide priority assignment unless WS_TEXT strongly requires a different order:
+
+1. Timing or consistency of claimant explanation.
+2. Retrospective application of later/different role standards to earlier conduct.
+3. Structural role evolution and seniority.
+4. Positive management direction or project-priority instructions.
+5. Practical meaning of queue obligation.
+6. Technical causation versus disciplinary inference.
+7. Failure to distinguish queue-time from non-queue-time data.
+8. Missing raw evidence or inability to test employer assumptions.
+9. Objective counter-evidence to avoidance narrative.
+10. Specific July 2023 system-effects/no-instruction event.
+11. Broader absence of prior warning or corrective instruction.
+12. Pre-hearing procedural prejudice, including short notice and missing documents.
+13. Failure to adjourn or investigate new points raised during the disciplinary hearing.
+14. Hostile hearing conduct and linguistic disadvantage.
+15. Inaccurate or selective minutes.
+16. Comparator / differential treatment.
+17. Predetermination based on concrete evidence.
+18. Appeal failure to cure original defects.
+19. Overall evidential assessment failure only where no more specific theme applies.
+20. Speculative, low-value, duplicative, or distracting material.
+
+If you adopt this order, theme_priority values must exactly match it.
+
+If you depart from this order, explain why in quality_control.notes and ensure theme_priority values remain unique 1–20.
+
+RISK-CONTROL THEME REQUIREMENT
+
+One of the 20 themes must be a RISK_ONLY theme for speculative, low-value, duplicative, or distracting material.
+
+This theme should act as a quarantine/control gate, not a drafting destination.
+
+It should include examples such as:
+
+- anonymous forum material;
+- motive speculation;
+- unsupported assumptions about what missing logs would show;
+- unanchored reputational harm;
+- duplicative stylistic variants of stronger themes;
+- any proposed addition not traceable to WS_TEXT.
+
+QUALITY STANDARD
+
+The output should be conservative, precise, and suitable for machine use.
+
+Avoid advocacy language.
+Avoid dramatic language.
+Avoid generic labels unless they are made case-specific.
+Each theme should reduce duplication, not create more of it.
+Every theme must have a clear mapping purpose.
+Every theme must state what it does not cover.
+Every theme must include a duplication guardrail.
+Every theme must include permitted actions that are proportionate to its status.
+
+VALIDATION REQUIREMENTS
+
+Before returning the JSON, internally check:
+
+1. Exactly 20 themes exist.
+2. Every theme has a unique theme_id.
+3. Every theme has a unique theme_priority.
+4. theme_priority values are integers from 1 to 20.
+5. No theme is merely a stylistic duplicate of another theme.
+6. Every theme is traceable to WS_TEXT.
+7. RISK_ONLY material is quarantined rather than mixed into substantive themes.
+8. permitted_actions use only the allowed values.
+9. The risk_rule order matches the theme_priority values.
+10. No WS text has been rewritten.
+11. No new allegation has been created.
+12. No external law has been used.
+
+Return JSON only.

@@ -1,0 +1,1049 @@
+{
+  "dictionary_metadata": {
+    "dictionary_name": "WS_Controlled_Theme_Dictionary",
+    "version": "v1.2",
+    "purpose": "Provide a stable, case-specific controlled taxonomy of exactly 20 WS themes derived from the claimant's Witness Statement, for use in mapping Employment Tribunal and Employment Appeal Tribunal judgment signals into the existing WS without duplication, invention, or overreach.",
+    "source": "WS_TEXT only",
+    "created_for": "Employment Tribunal WS calibration",
+    "strict_mapping_rule": "Every judgment signal must be mapped to exactly one primary theme using theme_priority and global_mapping_rules. theme_id is a stable dictionary identifier and must not be renumbered for priority reasons. theme_priority is the conflict-resolution rank and may differ from the numeric part of theme_id. New themes are not permitted in v1.2.",
+    "theme_id_rule": "theme_id is a stable dictionary address. Its numeric prefix is not a priority rank.",
+    "theme_priority_rule": "theme_priority is the conflict-resolution rank. Values must be unique integers from 1 to 20 and must exactly match the order in global_mapping_rules.risk_rule.",
+    "cross_reference_theme_ids_rule": "cross_reference_theme_ids is not pre-populated in this dictionary. It may be populated only by downstream mapping outputs where a signal has secondary relevance to other themes. It must not create duplicate action items."
+  },
+  "ws_theme_dictionary": [
+    {
+      "theme_id": "T01_ROLE_EVOLUTION",
+      "theme_priority": 3,
+      "theme_name": "Role Evolution and Seniority Change (2017–2022)",
+      "theme_status": "PRESENT",
+      "definition": "The documented progression of the claimant's role from a junior, queue-centric position into the senior Experienced Enterprise Relationship Service Representative role from 2022, accompanied by a documented change in performance assessment from queue-volume metrics to qualitative assessment of project delivery, escalation handling, knowledge transfer, stakeholder work, and business impact.",
+      "include_when": [
+        "A signal concerns what the claimant's role required during the relevant period.",
+        "A signal concerns how the claimant's performance assessment changed over time.",
+        "A signal refers to the 2022 appointment as Experienced Enterprise Relationship Service Representative.",
+        "A signal concerns the removal or absence of queue-based metrics from later performance evaluations.",
+        "A signal relies on or challenges the WS argument that performance expectations changed materially from 2022 onwards."
+      ],
+      "exclude_when": [
+        "The signal is about specific management instructions to prioritise projects — map to T02.",
+        "The signal is about queue obligation being conditional rather than continuous — map to T03.",
+        "The signal concerns the February 2024 role change to Trade Desk Analyst or retrospective application of junior standards — map to T19.",
+        "The signal concerns only ticket-resolution output figures — map to T10."
+      ],
+      "common_subthemes": [
+        "2019 and 2020 evaluations recorded queue metrics explicitly.",
+        "2022 interim evaluation reframed priority toward knowledge sharing.",
+        "2022 year-end evaluation assessed responsibility and impact rather than queue volume.",
+        "Queue statistics absent from later performance assessment framework.",
+        "Project and escalation work became part of the claimant's documented senior role."
+      ],
+      "preferred_ws_destination": [
+        "Background, Role Evolution, Performance Context, and Management Direction",
+        "Performance Assessment, Role Evolution, and Management Direction"
+      ],
+      "evidence_anchor_types": [
+        "2019 performance evaluation",
+        "2020 year-end performance evaluation",
+        "2022 interim performance evaluation",
+        "2022 year-end performance evaluation",
+        "2023 interim performance evaluation",
+        "DSAR-disclosed management discussions where relevant"
+      ],
+      "duplication_guardrail": "T01 is the factual history and structural role-evolution theme. Do not duplicate with T02, which covers specific management instructions; T03, which covers the nature of queue obligation; or T19, which covers retrospective application of junior-role standards to senior-role conduct.",
+      "permitted_actions": [
+        "REINFORCE",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not create new allegations about role grading or contractual entitlement.",
+        "Do not introduce comparative seniority arguments about colleagues.",
+        "Do not use this theme to make legal submissions about contract variation."
+      ],
+      "example_mapping_language": "Signal: 'The judgment turns on whether the claimant's role had changed from queue-focused work to senior project work.' → Map to T01."
+    },
+    {
+      "theme_id": "T02_MANAGEMENT_DIRECTION",
+      "theme_priority": 4,
+      "theme_name": "Management Direction and Project-Priority Assignment",
+      "theme_status": "PRESENT",
+      "definition": "The specific and repeated management directions that the claimant should prioritise project delivery, knowledge transfer, stakeholder engagement, escalation support, and acting as a resource for the team. This theme concerns what management positively instructed or endorsed, not merely the structural evolution of the role.",
+      "include_when": [
+        "A signal concerns whether the claimant was instructed to perform or prioritise project work.",
+        "A signal concerns management awareness or endorsement of project-focused working patterns.",
+        "A signal refers to the 2023 interim evaluation direction to continue working on projects and being a resource for the team.",
+        "A signal concerns DSAR-disclosed management discussions about using the claimant on projects.",
+        "A signal concerns whether the claimant had management authority or direction to prioritise project work."
+      ],
+      "exclude_when": [
+        "The signal is about structural role evolution from 2017 to 2022 — map to T01.",
+        "The signal is about queue coverage being situational or conditional — map to T03.",
+        "The signal is about the July 2023 system-effects discussion — map to T04.",
+        "The signal is about absence of corrective instruction — map to T04 or T07 depending on scope."
+      ],
+      "common_subthemes": [
+        "2022 interim evaluation: knowledge sharing as top priority.",
+        "2023 interim evaluation: continue projects, engage stakeholders, assist colleagues.",
+        "DSAR material recording management allocation of claimant toward projects.",
+        "Project work as management-directed rather than self-selected side activity.",
+        "Management awareness of project-led work allocation."
+      ],
+      "preferred_ws_destination": [
+        "Definition of Projects, Management Instruction, and Environment Switching",
+        "2023 interim evaluation and project direction"
+      ],
+      "evidence_anchor_types": [
+        "2022 interim performance evaluation",
+        "2023 interim performance evaluation",
+        "DSAR-disclosed management discussions",
+        "DSAR-disclosed client/project records",
+        "Project-status email from claimant to Team Leader"
+      ],
+      "duplication_guardrail": "T02 is the affirmative instruction theme: what management told or encouraged the claimant to do. T03 is queue conditionality. T07 is absence of warning. Do not map all role-related material to T02 merely because management is mentioned.",
+      "permitted_actions": [
+        "REINFORCE",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not assert management negligence or bad faith unless the WS expressly supports it.",
+        "Do not introduce implied contractual terms.",
+        "Do not characterise management motives beyond what the WS states."
+      ],
+      "example_mapping_language": "Signal: 'The claimant was told to continue working on projects and act as a resource for the team.' → Map to T02."
+    },
+    {
+      "theme_id": "T03_QUEUE_SITUATIONAL",
+      "theme_priority": 5,
+      "theme_name": "Queue Work as Situational and Conditional",
+      "theme_status": "PRESENT",
+      "definition": "The claimant's case that, during the senior role, queue coverage was conditional and situational rather than a continuous primary obligation. This theme concerns what queue obligation meant in practice: when queue work was required, whether it was primary or secondary, and whether queue availability was expected continuously.",
+      "include_when": [
+        "A signal concerns whether the claimant was required to be continuously available on the queue.",
+        "A signal concerns when queue participation was expected in practice.",
+        "A signal refers to queue work being needed only sometimes or during escalation/client-demand periods.",
+        "A signal concerns whether queue coverage was primary, secondary, or conditional during the senior role.",
+        "A signal concerns the claimant's understanding of queue expectations before the Trade Desk Analyst role."
+      ],
+      "exclude_when": [
+        "The signal concerns positive project-priority instructions — map to T02.",
+        "The signal concerns quantitative crash timing against queue scheduling — map to T08.",
+        "The signal concerns Trade Desk Analyst queue obligations or retrospective application of that role's standards — map to T19."
+      ],
+      "common_subthemes": [
+        "Queue coverage described as only sometimes.",
+        "Queue participation linked to escalation or client-demand periods.",
+        "Queue not treated as the claimant's primary senior-role output.",
+        "No instruction that queue throughput had to override project, testing, or escalation work.",
+        "Claimant's belief that project work did not require separate queue-off permission."
+      ],
+      "preferred_ws_destination": [
+        "January 2023 role definition and queue expectations",
+        "Appeal hearing explanation of queue coverage model"
+      ],
+      "evidence_anchor_types": [
+        "DSAR-disclosed management discussions",
+        "Oral communications concerning escalation-only queue obligation",
+        "Absence of queue-volume criticism in later evaluations",
+        "Project-status email with no queue focus"
+      ],
+      "duplication_guardrail": "T03 must remain narrower than T02. T03 answers: what did queue obligation mean? T02 answers: what project work was positively directed? Do not merge these themes.",
+      "permitted_actions": [
+        "REINFORCE",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not assert that the claimant had no queue obligation at all.",
+        "Do not introduce contractual arguments about queue duty.",
+        "Do not speculate about SLA thresholds or operational coverage requirements beyond the WS."
+      ],
+      "example_mapping_language": "Signal: 'The case turns on whether queue work was a continuous obligation or only situational.' → Map to T03."
+    },
+    {
+      "theme_id": "T04_JULY2023_NO_INSTRUCTION",
+      "theme_priority": 10,
+      "theme_name": "July 2023 System-Effects Discussion and No Instruction to Stop",
+      "theme_status": "PRESENT",
+      "definition": "The specific July 2023 event where the Team Leader raised observed adverse system effects, the claimant explained the link to environment switching required for assigned project and testing work, and no instruction was given to stop, restrict environment switching, reprioritise queue work, or curtail project activity.",
+      "include_when": [
+        "A signal concerns the July 2023 discussion specifically.",
+        "A signal concerns whether the claimant knew about system effects before March 2024.",
+        "A signal concerns whether the claimant was instructed to stop environment switching after July 2023.",
+        "A signal concerns whether the July 2023 discussion amounted to a warning or corrective instruction.",
+        "A signal concerns disputed later recollection of what was said in July 2023."
+      ],
+      "exclude_when": [
+        "The signal is about technical causation generally — map to T05.",
+        "The signal is about the broader absence of warning over time — map to T07.",
+        "The signal concerns first disciplinary framing on 19 March 2024 — map to T06 or T07 depending on issue."
+      ],
+      "common_subthemes": [
+        "Team Leader raised observed adverse system effects.",
+        "Claimant investigated and explained environment-switching cause.",
+        "Team Leader accepted the explanation or did not challenge it.",
+        "No stop instruction, restriction, written warning, or follow-up.",
+        "Subsequent performance evaluation reinforced project work rather than correcting behaviour.",
+        "Respondent's later oral recollection not supported by contemporaneous written record."
+      ],
+      "preferred_ws_destination": [
+        "July 2023 identification of system effects without instruction",
+        "July 2023 to March 2024 reasonable reliance"
+      ],
+      "evidence_anchor_types": [
+        "2023 interim performance evaluation",
+        "Hearing minutes recording no instruction to stop",
+        "Absence of written corrective record after July 2023",
+        "Claimant's account of July 2023 discussion"
+      ],
+      "duplication_guardrail": "T04 is a discrete-event theme. Use it only for July 2023. Use T07 for the broader no-warning pattern and T05 for the technical cause of system effects.",
+      "permitted_actions": [
+        "REINFORCE",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not allege bad faith by the Team Leader unless supported by the WS.",
+        "Do not allege falsification of records.",
+        "Do not use this theme to invent technical detail beyond the WS."
+      ],
+      "example_mapping_language": "Signal: 'The claimant explained the system effects in July 2023 and was not told to stop.' → Map to T04."
+    },
+    {
+      "theme_id": "T05_TECHNICAL_CAUSATION",
+      "theme_priority": 6,
+      "theme_name": "Technical Causation Versus Disciplinary Inference",
+      "theme_status": "PRESENT",
+      "definition": "The distinction between the occurrence of technical system effects caused by environment switching and the disciplinary inference that those effects were deliberately used to avoid tickets. This theme concerns the difference between technical causation and culpable intent.",
+      "include_when": [
+        "A signal concerns the cause of system crashes or WorkCentre/LaunchPad effects.",
+        "A signal concerns whether environment switching proves intentional ticket avoidance.",
+        "A signal concerns whether a technical occurrence can support a misconduct inference.",
+        "A signal concerns the employer's inference from crash data to deliberate misconduct.",
+        "A signal concerns the distinction between awareness of technical effects and awareness of disciplinary significance."
+      ],
+      "exclude_when": [
+        "The signal is about being told or not told to stop after July 2023 — map to T04.",
+        "The signal is about crash timing against queue schedules — map to T08.",
+        "The signal is about missing logs — map to T09.",
+        "The signal is about positive ticket or attendance evidence — map to T10."
+      ],
+      "common_subthemes": [
+        "Environment switching as required for project, testing, and implementation work.",
+        "Crashes as technical effects rather than acts of deliberate avoidance.",
+        "Awareness that switching could cause effects is not the same as awareness of disciplinary significance.",
+        "Crash occurrence does not itself prove missed tickets or avoidance.",
+        "Inference of selective client choice requires mechanism and evidence, not raw crash counts alone."
+      ],
+      "preferred_ws_destination": [
+        "Technical causation versus avoidance inference",
+        "Environment switching as routine aspect of project delivery",
+        "First presentation of allegations and lack of prior notice"
+      ],
+      "evidence_anchor_types": [
+        "Project work requiring multi-environment operation",
+        "Claimant's explanation in March meetings",
+        "Respondent's own characterisation of crashes",
+        "Ticket-resolution records showing continued output"
+      ],
+      "duplication_guardrail": "T05 is the inference theme. Do not map raw-data or methodology problems here if T08 or T09 fits more precisely. T05 is for the bridge from technical event to alleged misconduct.",
+      "permitted_actions": [
+        "REFRAME",
+        "REINFORCE",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not introduce unsupported technical detail about Bloomberg systems.",
+        "Do not allege fabricated crash data unless the WS supports it.",
+        "Do not claim technical causation conclusively disproves intent unless supported by evidence."
+      ],
+      "example_mapping_language": "Signal: 'The employer inferred misconduct from a technical system effect.' → Map to T05."
+    },
+    {
+      "theme_id": "T06_CONSISTENT_DEFENCE",
+      "theme_priority": 1,
+      "theme_name": "Early, Consistent, and Documented Defence Chronology",
+      "theme_status": "PRESENT",
+      "definition": "The claimant's case that the core explanation was raised from the first opportunity and maintained through the internal process: project work was management-directed; environment switching was required for that work; no instruction to stop had been given; and the crash figures did not prove ticket avoidance.",
+      "include_when": [
+        "A signal concerns timing or consistency of the claimant's explanation.",
+        "A signal concerns whether an explanation was raised early or late.",
+        "A signal concerns whether the claimant changed account between investigation, disciplinary hearing, appeal, and WS.",
+        "A signal concerns the written pre-hearing defence email.",
+        "A signal concerns whether the 19 March and 20 March explanations were inconsistent."
+      ],
+      "exclude_when": [
+        "The signal is only about the content of the technical explanation — map to T05.",
+        "The signal is about hearing conditions preventing full presentation — map to T12.",
+        "The signal is about minutes inaccurately recording the explanation — map to T13."
+      ],
+      "common_subthemes": [
+        "19 March 2024: project-work context raised from outset.",
+        "20 March 2024: same explanation repeated with environment switching detail.",
+        "Pre-hearing written defence email set out core points in advance.",
+        "Disciplinary hearing: same substantive points raised orally.",
+        "Appeal hearing: same points maintained.",
+        "Distinction between technical awareness and disciplinary awareness maintained."
+      ],
+      "preferred_ws_destination": [
+        "First presentation of allegations and early explanation",
+        "Submission of written defence",
+        "Appeal hearing account"
+      ],
+      "evidence_anchor_types": [
+        "19 March meeting notes",
+        "20 March meeting notes",
+        "Written pre-hearing defence email",
+        "Disciplinary hearing minutes",
+        "Appeal grounds and appeal hearing notes"
+      ],
+      "duplication_guardrail": "T06 takes priority over all other themes where the signal is about timing, consistency, or changed explanation. It is used both for positive consistency signals and for adversarial inconsistency attacks that need rebuttal mapping. Do not split 19 March, 20 March, written defence, disciplinary hearing, and appeal into separate themes.",
+      "permitted_actions": [
+        "REFRAME",
+        "REINFORCE",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not overstate what was said at early meetings beyond the records.",
+        "Do not invent detail to fill gaps in meeting notes.",
+        "Do not assume the tribunal will prefer the WS over contemporaneous minutes without addressing conflicts."
+      ],
+      "example_mapping_language": "Signal: 'The employer argues the claimant changed his explanation.' → Map to T06 as a consistency-risk/rebuttal signal. Do not add the adverse proposition as a positive WS fact; use T06 to test and reinforce the existing chronology against that attack."
+    },
+    {
+      "theme_id": "T07_NO_PRIOR_WARNING",
+      "theme_priority": 11,
+      "theme_name": "Absence of Prior Warning, Corrective Instruction, or Guidance",
+      "theme_status": "PRESENT",
+      "definition": "The broader pattern that no warning, performance improvement plan, corrective instruction, or formal/informal guidance was issued in relation to queue conduct, environment switching, ticket-handling frequency, or working practices before the disciplinary process.",
+      "include_when": [
+        "A signal concerns absence of prior warning or corrective instruction.",
+        "A signal concerns whether the claimant knew conduct could be disciplinary before March 2024.",
+        "A signal concerns whether management used available performance mechanisms to identify concern.",
+        "A signal concerns positive evaluations despite the later misconduct allegation.",
+        "A signal concerns reasonable reliance on silence or absence of correction over time."
+      ],
+      "exclude_when": [
+        "The signal concerns the specific July 2023 event — map to T04.",
+        "The signal concerns short notice of the disciplinary hearing — map to T11.",
+        "The signal concerns predetermination — map to T15."
+      ],
+      "common_subthemes": [
+        "No formal warning.",
+        "No informal corrective warning.",
+        "No performance improvement plan.",
+        "No recorded instruction to stop or change working practices.",
+        "Positive performance evaluations instead of corrective guidance.",
+        "Absence of contemporaneous concern despite management awareness."
+      ],
+      "preferred_ws_destination": [
+        "Reasonable reliance after July 2023",
+        "Notice and disciplinary-prejudice sections",
+        "Appeal hearing explanation"
+      ],
+      "evidence_anchor_types": [
+        "Performance evaluations",
+        "Absence of written warning records",
+        "Absence of performance improvement plan",
+        "Hearing minutes confirming no stop instruction"
+      ],
+      "duplication_guardrail": "T07 is longitudinal no-warning evidence. T04 is the July 2023 no-instruction event. Keep both distinct.",
+      "permitted_actions": [
+        "REINFORCE",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not state as a legal proposition that a warning is always required before dismissal for gross misconduct.",
+        "Do not speculate about undisclosed HR records.",
+        "Do not introduce comparator warning evidence unless mapped to T17."
+      ],
+      "example_mapping_language": "Signal: 'The claimant had no prior warning that the conduct was unacceptable.' → Map to T07."
+    },
+    {
+      "theme_id": "T08_NO_QUEUE_TIME_DISTINCTION",
+      "theme_priority": 7,
+      "theme_name": "Failure to Distinguish Queue-Time Crashes from Non-Queue-Time Crashes",
+      "theme_status": "PRESENT",
+      "definition": "The methodological flaw that the respondent relied on an undifferentiated crash count without separating crashes occurring during actual queue obligation from crashes occurring outside queue time, including weekends, extended hours, or project-only periods.",
+      "include_when": [
+        "A signal concerns correlation between crash timestamps and queue schedules.",
+        "A signal concerns whether crashes occurred during periods when the claimant was expected to be on queue.",
+        "A signal concerns weekend or out-of-hours crash entries.",
+        "A signal concerns the assumption that crash instances were 'meant to be' queue time.",
+        "A signal concerns methodological defects in the crash analysis."
+      ],
+      "exclude_when": [
+        "The signal concerns technical cause of crashes — map to T05.",
+        "The signal concerns missing raw logs — map to T09.",
+        "The signal concerns positive output evidence — map to T10.",
+        "The signal concerns overall investigative reasoning rather than the specific crash/queue segmentation flaw — map to T14."
+      ],
+      "common_subthemes": [
+        "Crash figures not correlated with queue schedules.",
+        "No distinction between queue-time and non-queue-time crashes.",
+        "Weekend and out-of-hours entries included in the sample.",
+        "ADD status not equivalent to active queue obligation without further analysis.",
+        "Assumption-based conclusion rather than timestamp verification."
+      ],
+      "preferred_ws_destination": [
+        "Failure to distinguish queue time, absence of verifiable data, and misinterpretation of crash figures",
+        "Failure to evidence allegations and selective treatment of objective evidence"
+      ],
+      "evidence_anchor_types": [
+        "Crash timestamp data",
+        "Queue allocation or rota records if available",
+        "Hearing minutes recording assumption-based reasoning",
+        "DSAR material showing weekend/out-of-hours entries"
+      ],
+      "duplication_guardrail": "T08 is the crash/queue segmentation theme. Do not use T14 if this more specific methodology theme applies.",
+      "permitted_actions": [
+        "REINFORCE",
+        "ADD EVIDENCE ANCHOR",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not invent statistical analysis.",
+        "Do not assert specific crash counts not in the WS.",
+        "Do not speculate what a corrected analysis would prove."
+      ],
+      "example_mapping_language": "Signal: 'The employer did not test whether the alleged crashes occurred during queue time.' → Map to T08."
+    },
+    {
+      "theme_id": "T09_MISSING_LOGS",
+      "theme_priority": 8,
+      "theme_name": "Missing Raw System Logs and Evidence Deficiency",
+      "theme_status": "PRESENT",
+      "definition": "The evidential gap arising from the absence of raw system logs or underlying records showing crash timing, queue status, ticket impact, and operational consequence. The respondent relied on high-level figures rather than verifiable underlying data, despite the claimant's request for logs.",
+      "include_when": [
+        "A signal concerns missing logs or missing underlying data.",
+        "A signal concerns reliance on summary figures rather than raw records.",
+        "A signal concerns inability to verify or test crash figures.",
+        "A signal concerns DSAR requests for system logs.",
+        "A signal concerns absence of records showing client or operational impact."
+      ],
+      "exclude_when": [
+        "The signal concerns failure to segment crash timing by queue obligation — map to T08.",
+        "The signal concerns documents not provided before the disciplinary hearing — map to T11.",
+        "The signal concerns comparator data — map to T17."
+      ],
+      "common_subthemes": [
+        "Formal request for underlying system logs.",
+        "No raw logs provided.",
+        "High-level summary figures relied upon.",
+        "No logs showing exact crash timing and queue status.",
+        "No data showing client impact or missed tickets."
+      ],
+      "preferred_ws_destination": [
+        "DSAR request and absence of raw system logs",
+        "Failure to evidence allegations"
+      ],
+      "evidence_anchor_types": [
+        "DSAR request",
+        "Disclosure record showing absence of logs",
+        "Respondent's summary figures",
+        "Absence of detailed operational-impact records"
+      ],
+      "duplication_guardrail": "T09 is about missing evidence. T08 is about flawed segmentation. T14 is about overall investigative reasoning. Use the most specific theme first.",
+      "permitted_actions": [
+        "REINFORCE",
+        "ADD EVIDENCE ANCHOR",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not speculate what missing logs would have shown.",
+        "Do not allege destruction or suppression of evidence unless the WS supports it.",
+        "Do not turn disclosure issues into legal submissions inside the dictionary."
+      ],
+      "example_mapping_language": "Signal: 'The employer relied on summary data without producing raw logs.' → Map to T09."
+    },
+    {
+      "theme_id": "T10_OBJECTIVE_COUNTER_EVIDENCE",
+      "theme_priority": 9,
+      "theme_name": "Objective Counter-Evidence to Ticket-Avoidance Narrative",
+      "theme_status": "PRESENT",
+      "definition": "The combined objective evidence inconsistent with deliberate ticket avoidance: ticket-resolution figures, team-average comparison, evidence of continued ticket ownership/resolution, weekend badge-swipe attendance, positive evaluations, and positive feedback shortly after the March meetings.",
+      "include_when": [
+        "A signal concerns evidence inconsistent with avoidance of work.",
+        "A signal concerns ticket-resolution output.",
+        "A signal concerns weekend attendance or badge-swipe records.",
+        "A signal concerns positive performance evidence contradicting misconduct inference.",
+        "A signal concerns continued ownership or resolution of tickets during alleged crash periods."
+      ],
+      "exclude_when": [
+        "The signal concerns role expectations — map to T01, T02, or T03.",
+        "The signal concerns missing logs — map to T09.",
+        "The signal concerns comparator treatment of another person — map to T17."
+      ],
+      "common_subthemes": [
+        "Approximately 886 tickets resolved versus team average approximately 646.",
+        "Respondent's own evidence showing claimant as ticket owner/resolver.",
+        "Weekend badge-swipe records showing over 30 weekends and over 200 hours.",
+        "Positive performance evaluations.",
+        "Positive BQuant feedback dated after March meetings.",
+        "Logical inconsistency between avoidance narrative and continued output."
+      ],
+      "preferred_ws_destination": [
+        "Ticket-resolution figures and inconsistency of avoidance allegation",
+        "Badge-swipe evidence and failure to engage with it",
+        "Objective evidence countering intent"
+      ],
+      "evidence_anchor_types": [
+        "Ticket-resolution data",
+        "Team-average data",
+        "Weekend badge-swipe records",
+        "Performance evaluations",
+        "BQuant positive feedback",
+        "Respondent ticket records"
+      ],
+      "duplication_guardrail": "T10 consolidates ticket figures, badge data, performance evaluations, and other positive output evidence. Do not split each evidence type into a separate theme.",
+      "permitted_actions": [
+        "REINFORCE",
+        "ADD EVIDENCE ANCHOR",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not introduce unverified statistics.",
+        "Do not claim the evidence conclusively disproves intent unless that is supported.",
+        "Do not merge this with comparator arguments."
+      ],
+      "example_mapping_language": "Signal: 'The claimant's objective output undermined the alleged avoidance inference.' → Map to T10."
+    },
+    {
+      "theme_id": "T11_SHORT_NOTICE_PROCEDURAL_PREJUDICE",
+      "theme_priority": 12,
+      "theme_name": "Short Notice and Pre-Hearing Procedural Prejudice",
+      "theme_status": "PRESENT",
+      "definition": "The claimant's case that very short notice of the disciplinary hearing and lack of advance documents caused practical prejudice by limiting preparation, evidence gathering, document review, accompaniment, and ability to respond to serious allegations.",
+      "include_when": [
+        "A signal concerns notice of the disciplinary hearing.",
+        "A signal concerns ability to prepare before the hearing.",
+        "A signal concerns failure to provide documents in advance.",
+        "A signal concerns inability to arrange accompaniment or advice.",
+        "A signal concerns respondent procedure requiring notice and documents."
+      ],
+      "exclude_when": [
+        "The signal concerns hostile conduct during the hearing — map to T12.",
+        "The signal concerns failure to adjourn after issues arose — map to T16.",
+        "The signal concerns missing system logs generally — map to T09."
+      ],
+      "common_subthemes": [
+        "Two days' notice of hearing.",
+        "Documents not provided in advance.",
+        "Weekly logs requested but not provided.",
+        "Limited time to prepare or seek accompaniment.",
+        "Respondent's procedure requiring sufficient information and documents."
+      ],
+      "preferred_ws_destination": [
+        "Notice of disciplinary hearing and procedural prejudice",
+        "Failure to comply with respondent's own disciplinary procedure"
+      ],
+      "evidence_anchor_types": [
+        "Chat message dated 2 April 2024",
+        "Formal hearing email",
+        "Respondent disciplinary procedure",
+        "Request for weekly logs"
+      ],
+      "duplication_guardrail": "T11 is pre-hearing prejudice. T16 is during-hearing failure to adjourn. T12 is hostile conduct. Keep these separate.",
+      "permitted_actions": [
+        "REINFORCE",
+        "ADD FACT",
+        "ADD EVIDENCE ANCHOR",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not make standalone legal submissions about procedural law.",
+        "Do not speculate beyond the WS about what extra preparation would have achieved.",
+        "Do not merge short notice with all procedural complaints."
+      ],
+      "example_mapping_language": "Signal: 'The claimant was unable to prepare because of short disciplinary notice.' → Map to T11."
+    },
+    {
+      "theme_id": "T12_HOSTILE_HEARING_LINGUISTIC",
+      "theme_priority": 14,
+      "theme_name": "Hostile Hearing Conduct and Linguistic Disadvantage",
+      "theme_status": "PRESENT",
+      "definition": "The claimant says the disciplinary hearing was affected by hostile or dismissive conduct, including interruption of the technical explanation and a mocking comment about the claimant's use of 'we'. The claimant says this had a destabilising effect and impaired the ability to present the defence calmly and coherently, particularly given English is not the claimant's first language.",
+      "include_when": [
+        "A signal concerns conduct of participants during the disciplinary hearing.",
+        "A signal concerns interruptions preventing full explanation.",
+        "A signal concerns linguistic disadvantage or the 'we' comment.",
+        "A signal concerns the claimant's ability to present the case under hearing conditions.",
+        "A signal concerns the later request for a translator as consequence or corroboration."
+      ],
+      "exclude_when": [
+        "The signal concerns inaccurate minutes — map to T13.",
+        "The signal concerns predetermination through the script — map to T15.",
+        "The signal concerns short notice before the hearing — map to T11."
+      ],
+      "common_subthemes": [
+        "Interruption of technical explanation.",
+        "Assertion that decision-maker already knew how environment switching worked.",
+        "Comment about not using 'we'.",
+        "English not first language.",
+        "Destabilising effect as stated by claimant.",
+        "Request for translator for tribunal hearing."
+      ],
+      "preferred_ws_destination": [
+        "Disciplinary hearing conduct, linguistic disadvantage, and predetermination"
+      ],
+      "evidence_anchor_types": [
+        "Claimant's account of hearing",
+        "Hearing minutes if they record relevant exchanges",
+        "Translator request"
+      ],
+      "duplication_guardrail": "T12 is about hearing conduct and ability to present the defence. T13 is about the written record. T15 is about predetermined outcome. Do not merge.",
+      "permitted_actions": [
+        "REFRAME",
+        "REINFORCE",
+        "SOFTEN",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not convert this into a discrimination claim unless separately pleaded and evidenced.",
+        "Do not attribute motive to Mr O'Hagan beyond the WS.",
+        "Do not assert objective impairment as tribunal fact; frame as claimant's account unless independently evidenced."
+      ],
+      "example_mapping_language": "Signal: 'The claimant says hostile interruptions impaired the ability to present the defence.' → Map to T12."
+    },
+    {
+      "theme_id": "T13_INACCURATE_MINUTES",
+      "theme_priority": 15,
+      "theme_name": "Inaccurate or Selective Hearing Minutes",
+      "theme_status": "PRESENT",
+      "definition": "The claimant's case that the official disciplinary hearing minutes did not fairly or fully record the claimant's explanations, denials, and key points, while recording adverse questions or assertions more prominently.",
+      "include_when": [
+        "A signal concerns accuracy of hearing minutes.",
+        "A signal concerns omitted or diluted claimant explanations.",
+        "A signal concerns whether minutes captured denial of intentional misconduct.",
+        "A signal concerns the recorded exchange that no instruction to stop was given.",
+        "A signal concerns conflict between minutes and claimant's account."
+      ],
+      "exclude_when": [
+        "The signal concerns conduct during hearing — map to T12.",
+        "The signal concerns predetermination — map to T15.",
+        "The signal concerns appeal failure to address inaccuracies — map to T18."
+      ],
+      "common_subthemes": [
+        "Minutes record adverse questions but omit or dilute answers.",
+        "Denial of intent not fairly reflected.",
+        "No instruction to stop recorded in claimant's favour.",
+        "Pre-hearing written defence supports what claimant intended to convey.",
+        "Official minutes create credibility contest if not anchored."
+      ],
+      "preferred_ws_destination": [
+        "Official minutes and their accuracy"
+      ],
+      "evidence_anchor_types": [
+        "Official hearing minutes",
+        "Written pre-hearing defence email",
+        "Claimant's WS account"
+      ],
+      "duplication_guardrail": "T13 is the record-accuracy theme only. Do not use it for general hearing unfairness unless the minutes are specifically at issue.",
+      "permitted_actions": [
+        "REINFORCE",
+        "ADD EVIDENCE ANCHOR",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not allege deliberate falsification of minutes unless supported by the WS.",
+        "Do not reconstruct the hearing beyond the claimant's evidence.",
+        "Do not rely solely on assertion where contemporaneous support exists elsewhere."
+      ],
+      "example_mapping_language": "Signal: 'The minutes omitted the claimant's key explanation.' → Map to T13."
+    },
+    {
+      "theme_id": "T14_FAILURE_TO_VERIFY_EVIDENCE",
+      "theme_priority": 19,
+      "theme_name": "Overall Failure to Verify Evidential Assumptions",
+      "theme_status": "PRESENT",
+      "definition": "The broader decision-making failure where the respondent drew disciplinary conclusions from assumptions without verifying the factual predicates necessary to support them. This theme is used only when the signal concerns the overall reasonableness or balance of the evidential assessment, not a more specific data, disclosure, or counter-evidence issue.",
+      "include_when": [
+        "A signal concerns overall adequacy of the evidential investigation.",
+        "A signal concerns decision-maker reliance on assumptions rather than verified facts.",
+        "A signal concerns failure to weigh exculpatory evidence as part of the overall decision.",
+        "A signal concerns whether the employer conducted a balanced evidential assessment.",
+        "A signal concerns gross misconduct being found without verifying necessary factual predicates."
+      ],
+      "exclude_when": [
+        "The signal concerns crash/queue segmentation specifically — map to T08.",
+        "The signal concerns missing logs specifically — map to T09.",
+        "The signal concerns ticket, badge, or performance counter-evidence specifically — map to T10.",
+        "The signal concerns pre-hearing disclosure or notice — map to T11.",
+        "The signal concerns failure to adjourn — map to T16."
+      ],
+      "common_subthemes": [
+        "Assumption that relevant crashes were queue-time crashes.",
+        "No verification of missed tickets or client impact.",
+        "Failure to incorporate counter-evidence into decision.",
+        "Selected system metrics relied on without balanced assessment.",
+        "Gross misconduct conclusion drawn before evidential assumptions were tested."
+      ],
+      "preferred_ws_destination": [
+        "Failure to evidence allegations and selective treatment of objective evidence",
+        "Failure to comply with procedure"
+      ],
+      "evidence_anchor_types": [
+        "Hearing minutes showing assumption-based reasoning",
+        "Absence of verification steps",
+        "Badge and ticket evidence not engaged with",
+        "Decision letter or appeal outcome reasoning"
+      ],
+      "duplication_guardrail": "Do not map to T14 where a more specific evidential theme applies. T14 is only for signals about the overall reasonableness of the evidential assessment.",
+      "permitted_actions": [
+        "REINFORCE",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not use T14 as a catch-all for every evidence problem.",
+        "Do not speculate what a proper investigation would have found.",
+        "Do not turn this into legal submissions inside the dictionary."
+      ],
+      "example_mapping_language": "Signal: 'The employer's decision rested on untested assumptions overall.' → Map to T14 only if T08, T09, T10, T11, or T16 is not more specific."
+    },
+    {
+      "theme_id": "T15_PREDETERMINATION",
+      "theme_priority": 17,
+      "theme_name": "Predetermination at Disciplinary Stage and During Appeal Period",
+      "theme_status": "PRESENT",
+      "definition": "The claimant's case that the disciplinary process and/or appeal period showed a closed or predetermined approach, based on two specific evidential strands: an internal pre-hearing script that anticipated denial and included a pre-drafted termination outcome, and a LinkedIn/WhatsApp exchange suggesting dismissal reasons had been communicated internally while the appeal remained live.",
+      "include_when": [
+        "A signal concerns whether the disciplinary outcome was decided before the hearing.",
+        "A signal concerns a scripted pre-hearing document or pre-drafted termination outcome.",
+        "A signal concerns internal communication of dismissal reasons while appeal was pending.",
+        "A signal concerns LinkedIn or WhatsApp evidence of during-appeal disclosure.",
+        "A signal concerns open-mindedness or independence of the process based on these evidence strands."
+      ],
+      "exclude_when": [
+        "The signal concerns substantive failures in the appeal outcome — map to T18.",
+        "The signal concerns comparator evidence ignored on appeal — map to T17.",
+        "The signal concerns Fishbowl or anonymous forum material — map to T20 only.",
+        "The signal concerns hostile conduct during hearing — map to T12."
+      ],
+      "common_subthemes": [
+        "Pre-hearing script anticipated denial.",
+        "Pre-drafted termination outcome.",
+        "Hearing mirrored scripted structure.",
+        "LinkedIn contact while appeal pending.",
+        "WhatsApp exchange stating team had been told claimant manipulated system.",
+        "Dismissal allegation communicated as established conclusion before appeal completion."
+      ],
+      "preferred_ws_destination": [
+        "Predetermination evidence in the hearing",
+        "Predetermination evidence during pending appeal"
+      ],
+      "evidence_anchor_types": [
+        "Pre-hearing scripted document",
+        "LinkedIn exchange",
+        "WhatsApp screenshot",
+        "Appeal timeline"
+      ],
+      "duplication_guardrail": "T15 is limited to the scripted-document and during-appeal disclosure strands. Fishbowl material must not be mapped here; it belongs exclusively to T20 unless independently evidenced elsewhere in the WS.",
+      "permitted_actions": [
+        "REINFORCE",
+        "ADD EVIDENCE ANCHOR",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not use Fishbowl as predetermination evidence.",
+        "Do not speculate about management motives beyond the documents.",
+        "Do not overstate the WhatsApp evidence unless date, sender, source, and content are clear."
+      ],
+      "example_mapping_language": "Signal: 'The outcome appeared predetermined because a pre-hearing script contained a termination outcome.' → Map to T15."
+    },
+    {
+      "theme_id": "T16_FAILURE_TO_ADJOURN",
+      "theme_priority": 13,
+      "theme_name": "Failure to Adjourn or Investigate New Points Raised at Hearing",
+      "theme_status": "PRESENT",
+      "definition": "The claimant's case that, once material evidential and factual points were raised during the disciplinary hearing, a reasonable process required adjournment or further investigation, including review of queue/crash evidence, re-engagement with relevant witnesses, and consideration of contemporaneous records. The hearing was not adjourned despite the respondent's own procedure contemplating adjournment where new points required investigation.",
+      "include_when": [
+        "A signal concerns failure to adjourn during or after the disciplinary hearing.",
+        "A signal concerns failure to investigate new points raised at the hearing.",
+        "A signal concerns failure to re-engage the Team Leader after disputed instructions were raised.",
+        "A signal concerns failure to review contemporaneous records before reaching outcome.",
+        "A signal concerns the respondent's own adjournment procedure."
+      ],
+      "exclude_when": [
+        "The signal concerns short notice before the hearing — map to T11.",
+        "The signal concerns appeal-stage failure to investigate — map to T18.",
+        "The signal concerns overall evidence verification rather than adjournment as a procedural safeguard — map to T14."
+      ],
+      "common_subthemes": [
+        "New points raised regarding crash/queue correlation.",
+        "Disputed Team Leader instruction not tested against documents.",
+        "No adjournment despite material evidential gaps.",
+        "No post-hearing investigation before outcome.",
+        "Respondent's procedure allowed adjournment for new points."
+      ],
+      "preferred_ws_destination": [
+        "Failure to comply with respondent's own disciplinary procedure",
+        "Ms Vora's non-response to contradiction raised by claimant"
+      ],
+      "evidence_anchor_types": [
+        "Respondent disciplinary procedure",
+        "Hearing minutes",
+        "Absence of post-hearing investigation steps",
+        "Written defence email"
+      ],
+      "duplication_guardrail": "T16 is during-hearing procedural safeguard failure. Do not merge it with T11 pre-hearing prejudice or T18 appeal failure.",
+      "permitted_actions": [
+        "REINFORCE",
+        "ADD FACT",
+        "ADD EVIDENCE ANCHOR",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not speculate what further investigation would have found.",
+        "Do not introduce unnamed witnesses beyond the WS.",
+        "Do not turn the theme into generic legal submissions."
+      ],
+      "example_mapping_language": "Signal: 'The employer should have adjourned to investigate new points raised at the disciplinary hearing.' → Map to T16."
+    },
+    {
+      "theme_id": "T17_COMPARATOR_TREATMENT",
+      "theme_priority": 16,
+      "theme_name": "Comparator Evidence and Differential Treatment",
+      "theme_status": "PRESENT",
+      "definition": "The claimant's comparator theme: another colleague with materially similar role/reporting features allegedly resolved only one ticket across a substantially longer period of scheduled queue time without disciplinary action, while the claimant's low-ticket period was treated as evidence of misconduct. This theme is limited to identifiable comparator or differential-treatment evidence, not general team-average metrics.",
+      "include_when": [
+        "A signal concerns comparator evidence.",
+        "A signal concerns differential treatment of another employee or peer.",
+        "A signal concerns same title, same manager, same Team Leader, queue hours, and ticket count comparison.",
+        "A signal concerns appeal failure to investigate comparator evidence.",
+        "A signal concerns whether standards were applied consistently between employees."
+      ],
+      "exclude_when": [
+        "The signal concerns the claimant's own team-average ticket comparison — map to T10.",
+        "The signal concerns appeal failure generally — map to T18 unless comparator-specific.",
+        "The signal concerns role standards generally — map to T01, T03, or T19."
+      ],
+      "common_subthemes": [
+        "Same corporate title.",
+        "Same Team Leader and manager.",
+        "Approximately 580 scheduled queue hours.",
+        "One ticket resolved by comparator.",
+        "No disciplinary action against comparator.",
+        "Appeal outcome did not engage with comparator."
+      ],
+      "preferred_ws_destination": [
+        "Comparator evidence raised at appeal",
+        "Appeal outcome's failure to address comparator"
+      ],
+      "evidence_anchor_types": [
+        "Comparator ticket/scheduling data",
+        "Appeal hearing record",
+        "Appeal outcome letter",
+        "DSAR or internal records supporting comparator facts"
+      ],
+      "duplication_guardrail": "T17 has priority over T18 for comparator-specific signals. T10 is not comparator evidence; it covers claimant's own objective output and team-average data.",
+      "permitted_actions": [
+        "REINFORCE",
+        "ADD EVIDENCE ANCHOR",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not identify comparator by name unless already in WS or permitted.",
+        "Do not assert identical circumstances unless evidenced.",
+        "Do not imply comparator misconduct beyond the factual comparison."
+      ],
+      "example_mapping_language": "Signal: 'Another employee in a similar role was treated differently.' → Map to T17."
+    },
+    {
+      "theme_id": "T18_APPEAL_NO_CURE",
+      "theme_priority": 18,
+      "theme_name": "Appeal Failure to Cure Original Defects",
+      "theme_status": "PRESENT",
+      "definition": "The claimant's case that the appeal did not provide a genuine cure of the original disciplinary defects. It failed to address central factual and logical points, relied on unsupported retrospective oral recall, did not properly engage with objective counter-evidence, and confirmed rather than genuinely reconsidered the original decision.",
+      "include_when": [
+        "A signal concerns adequacy or independence of the appeal process.",
+        "A signal concerns whether the appeal cured original defects.",
+        "A signal concerns appeal reliance on unsupported late oral recall.",
+        "A signal concerns appeal failure to reconcile the avoidance allegation with objective evidence.",
+        "A signal concerns appeal delay or ratification rather than reconsideration."
+      ],
+      "exclude_when": [
+        "The signal is comparator-specific — map to T17.",
+        "The signal is predetermination-specific — map to T15.",
+        "The signal concerns disciplinary-stage failure to adjourn — map to T16.",
+        "The signal concerns hearing minutes specifically — map to T13."
+      ],
+      "common_subthemes": [
+        "Appeal did not engage with logical inconsistency of avoidance-by-working.",
+        "Appeal preferred late oral recall over contemporaneous documents.",
+        "Appeal did not reconcile outcome with ticket figures and badge data.",
+        "Appeal did not cure disclosure or evidential defects.",
+        "Appeal confirmed original decision rather than reconsidering it."
+      ],
+      "preferred_ws_destination": [
+        "Appeal outcome analysis",
+        "Appeal hearing account"
+      ],
+      "evidence_anchor_types": [
+        "Appeal outcome letter",
+        "Appeal hearing notes",
+        "Written appeal grounds",
+        "Objective evidence raised on appeal"
+      ],
+      "duplication_guardrail": "T18 is the general appeal-no-cure theme. If the signal is specifically about comparator, use T17. If specifically about during-appeal predetermination, use T15.",
+      "permitted_actions": [
+        "REINFORCE",
+        "ADD EVIDENCE ANCHOR",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not speculate about internal appeal motives.",
+        "Do not say the appeal ignored an issue unless the outcome letter supports that.",
+        "Do not merge predetermination evidence into T18 where T15 is more specific."
+      ],
+      "example_mapping_language": "Signal: 'The appeal did not cure earlier procedural or evidential defects.' → Map to T18 unless T15 or T17 is more specific."
+    },
+    {
+      "theme_id": "T19_RETROSPECTIVE_STANDARD",
+      "theme_priority": 2,
+      "theme_name": "Retrospective Application of Junior Role Standards to Senior Role Conduct",
+      "theme_status": "PRESENT",
+      "definition": "The claimant's case that conduct and data arising during the senior Experienced Enterprise Relationship Service Representative role were later judged by expectations associated with the Trade Desk Analyst role, which was more queue-centric. This theme concerns mismatch between the period of conduct and the role standard applied in the disciplinary process.",
+      "include_when": [
+        "A signal concerns which role's standards were applied to the alleged conduct.",
+        "A signal concerns senior-role conduct later judged by junior/queue-centric expectations.",
+        "A signal concerns the February 2024 move to Trade Desk Analyst.",
+        "A signal concerns the ET3 description of Trade Desk Analyst queue obligations.",
+        "A signal concerns escalation occurring only after role change despite unchanged conduct or system behaviour."
+      ],
+      "exclude_when": [
+        "The signal concerns role evolution history only — map to T01.",
+        "The signal concerns management project-priority instructions — map to T02.",
+        "The signal concerns queue conditionality during senior role — map to T03."
+      ],
+      "common_subthemes": [
+        "Senior role: project-led and escalation-focused.",
+        "Trade Desk Analyst role: queue-centric.",
+        "System behaviour identified during senior role but escalated after role change.",
+        "Disciplinary data drawn from senior-role period.",
+        "Junior-role standard applied retrospectively.",
+        "No change in conduct or risk profile; only role label changed."
+      ],
+      "preferred_ws_destination": [
+        "Escalation only after role change"
+      ],
+      "evidence_anchor_types": [
+        "ET3 statement on Trade Desk Analyst role",
+        "Senior-role performance evaluations",
+        "July 2023 system-effects discussion",
+        "Absence of escalation during senior role"
+      ],
+      "duplication_guardrail": "T19 has priority where the issue is role-period mismatch. Do not map these signals to T01 merely because role evolution is involved.",
+      "permitted_actions": [
+        "REINFORCE",
+        "ADD FACT",
+        "ADD EVIDENCE ANCHOR",
+        "REVIEW_MANUALLY"
+      ],
+      "forbidden_uses": [
+        "Do not suggest the role change itself was unlawful unless supported.",
+        "Do not introduce constructive dismissal arguments.",
+        "Do not make contractual claims beyond the WS."
+      ],
+      "example_mapping_language": "Signal: 'The employer judged senior-role conduct using queue-centric junior-role standards.' → Map to T19."
+    },
+    {
+      "theme_id": "T20_RISK_CONTROL",
+      "theme_priority": 20,
+      "theme_name": "Speculative, Low-Value, or Potentially Distracting Material — Risk Control",
+      "theme_status": "RISK_ONLY",
+      "definition": "A quarantine and review theme for material that may be speculative, weakly evidenced, peripheral, duplicative, inferential beyond the WS, or distracting from stronger documentary themes. This includes Fishbowl material, broad motive speculation, unsupported assertions about what missing logs would show, and any new argument not traceable to the WS.",
+      "include_when": [
+        "A signal requires factual inference not supported by the WS.",
+        "A signal relies on Fishbowl or anonymous forum material.",
+        "A signal speculates about what missing logs would have proved.",
+        "A signal attributes improper motive without documentary support.",
+        "A signal duplicates an existing stronger theme using different language.",
+        "A proposed addition is not traceable to WS_TEXT."
+      ],
+      "exclude_when": [
+        "The signal fits any of T01–T19 with documentary support.",
+        "The signal is weak but still traceable to a specific substantive theme — map to that theme with REVIEW_MANUALLY.",
+        "The signal concerns predetermination evidence from script or WhatsApp — map to T15, not T20."
+      ],
+      "common_subthemes": [
+        "Fishbowl content: background only, not proof of specific facts.",
+        "Speculation about management motive.",
+        "Speculation about missing logs.",
+        "Unanchored reputational-damage assertions.",
+        "Discrimination or minority-background implications requiring careful evidential review.",
+        "Duplicative stylistic variants of existing themes."
+      ],
+      "preferred_ws_destination": [
+        "Review only — no automatic WS destination"
+      ],
+      "evidence_anchor_types": [
+        "None — T20 is a control gate, not an evidential destination"
+      ],
+      "duplication_guardrail": "T20 is not a substantive theme. It is a quarantine cage. Use it only when no specific theme fits or where the point is speculative, weak, duplicative, or potentially distracting. Fishbowl must be mapped here only, not to T15.",
+      "permitted_actions": [
+        "REFRAME",
+        "SOFTEN",
+        "REMOVE",
+        "REVIEW_MANUALLY",
+        "DO_NOT_USE"
+      ],
+      "forbidden_uses": [
+        "Do not use T20 to suppress evidenced arguments.",
+        "Do not map difficult but supported points here merely because they are complex.",
+        "Do not treat T20 as a drafting destination."
+      ],
+      "example_mapping_language": "Signal: 'Fishbowl posts suggest a wider dismissal culture.' → Map to T20 and flag REVIEW_MANUALLY or REMOVE."
+    }
+  ],
+  "global_mapping_rules": {
+    "default_rule": "Every judgment signal must be mapped to exactly one primary theme from T01 to T20. Use the most specific applicable theme, then resolve conflicts using theme_priority. If no theme fits, map to T20 only if speculative, weak, duplicative, or unsupported; otherwise flag REVIEW_MANUALLY.",
+    "new_theme_rule": "No new themes may be created in v1.2. If a signal appears to require a new theme, map to the nearest existing theme with REVIEW_MANUALLY, or T20 if speculative or unsupported.",
+    "duplication_rule": "Each signal must be mapped to exactly one primary theme. Secondary candidate themes may be recorded in downstream mapping outputs as cross_reference_theme_ids, but this field is not pre-populated in the dictionary and must not create duplicate action items.",
+    "evidence_rule": "Each mapped signal must be traceable to WS_TEXT and at least one evidence_anchor_type. If the evidence anchor is missing or incomplete, use ADD EVIDENCE ANCHOR rather than ADD unless a genuinely missing factual section is identified.",
+    "speculation_rule": "Any signal requiring facts not present or clearly latent in WS_TEXT must be mapped to T20 and flagged REVIEW_MANUALLY or DO_NOT_USE. Do not let external case facts create new WS allegations.",
+    "chronology_rule": "When a signal concerns timing or consistency of the claimant's explanation, T06 takes priority over all other themes. When a signal concerns senior-role conduct judged by junior-role standards, T19 takes priority over T01, T02, and T03.",
+    "risk_rule": "Canonical priority order: (1) T06_CONSISTENT_DEFENCE for timing, consistency, changed-account, and rebuttal-mapping signals; (2) T19_RETROSPECTIVE_STANDARD for senior-role conduct judged by junior-role standards; (3) T01_ROLE_EVOLUTION for structural role history; (4) T02_MANAGEMENT_DIRECTION for positive management instruction; (5) T03_QUEUE_SITUATIONAL for the practical meaning of queue obligation; (6) T05_TECHNICAL_CAUSATION for technical causation versus disciplinary inference; (7) T08_NO_QUEUE_TIME_DISTINCTION for crash/queue segmentation methodology; (8) T09_MISSING_LOGS for missing raw system evidence; (9) T10_OBJECTIVE_COUNTER_EVIDENCE for ticket, badge, performance, and output evidence; (10) T04_JULY2023_NO_INSTRUCTION for the discrete July 2023 no-instruction event; (11) T07_NO_PRIOR_WARNING for the broader no-warning pattern; (12) T11_SHORT_NOTICE_PROCEDURAL_PREJUDICE for pre-hearing notice and preparation prejudice; (13) T16_FAILURE_TO_ADJOURN for during-hearing failure to adjourn or investigate new points; (14) T12_HOSTILE_HEARING_LINGUISTIC for hostile hearing conduct and linguistic disadvantage; (15) T13_INACCURATE_MINUTES for inaccurate or selective minutes; (16) T17_COMPARATOR_TREATMENT for comparator-specific signals; (17) T15_PREDETERMINATION for scripted-document and during-appeal disclosure predetermination signals; (18) T18_APPEAL_NO_CURE for general appeal failure where T15 or T17 is not more specific; (19) T14_FAILURE_TO_VERIFY_EVIDENCE for overall evidential assessment only where no more specific evidence theme applies; (20) T20_RISK_CONTROL for speculative, low-value, duplicative, or unsupported material.",
+    "theme_id_rule": "The numeric part of theme_id is not a priority rank. Do not infer priority from T01, T02, etc.",
+    "theme_priority_rule": "theme_priority is the canonical conflict-resolution order. Values must be unique integers from 1 to 20 and must exactly match risk_rule.",
+    "action_rule": "REFRAME remains a valid permitted action where a judgment signal is adversarial or dangerously worded but can be safely mapped into an existing WS theme. REFRAME must not create new facts."
+  },
+  "quality_control": {
+    "ws_rewrite_performed": false,
+    "new_allegations_created": false,
+    "external_law_used": false,
+    "semantic_duplication_checked": true,
+    "amendments_from_v1": [
+      "Added theme_priority to every theme for machine conflict resolution.",
+      "Narrowed T03 so it covers queue obligation meaning rather than repeating management-direction content.",
+      "Narrowed T14 so it cannot swallow T08, T09, T10, T11, or T16.",
+      "Removed Fishbowl from T15 and confined it to T20 risk control.",
+      "Softened T12 definition to frame impairment as the claimant's account rather than dictionary-level conclusion.",
+      "Reduced ADD permissions for already-present substantive themes and reserved ADD mainly for missing facts, evidence anchors, or latent/fallback structures.",
+      "Resolved priority-rule ambiguity between T17 comparator signals and T18 appeal-no-cure signals.",
+      "Clarified that T20 is a quarantine/control gate, not a substantive drafting destination."
+    ],
+    "notes": [
+      "T01 and T19 remain intentionally distinct: T01 is role history; T19 is retrospective application of junior standards.",
+      "T04 and T07 remain intentionally distinct: T04 is the July 2023 no-instruction event; T07 is the broader no-warning pattern.",
+      "T08 and T09 remain intentionally distinct: T08 is methodology; T09 is missing raw evidence.",
+      "T10 remains the consolidation bucket for objective counter-evidence to avoid fragmentation across ticket figures, badge records, and performance records.",
+      "T15 now excludes Fishbowl entirely. Fishbowl belongs only in T20 unless independently evidenced by another WS anchor.",
+      "T17 has priority over T18 for comparator-specific signals, even where the comparator issue arose at appeal.",
+      "T18 captures appeal failure generally but must not absorb predetermination-specific or comparator-specific signals.",
+      "T20 should be used sparingly and defensively, not as a default for hard classification problems."
+    ],
+    "version": "v1.2",
+    "validation_rules": [
+      "theme_priority values must be unique integers from 1 to 20.",
+      "theme_priority values must exactly match the canonical order in global_mapping_rules.risk_rule.",
+      "theme_id values must remain stable and must not be renumbered to match priority.",
+      "cross_reference_theme_ids may appear only in downstream mapping outputs, not as required dictionary fields.",
+      "REFRAME remains a valid action only where it maps an unsafe/adversarial framing into an existing theme without creating new facts."
+    ],
+    "amendments_from_v1_1": [
+      "Harmonised all theme_priority values with the canonical risk_rule order.",
+      "Resolved the T12/T16 priority misalignment: T16 is priority 13 and T12 is priority 14.",
+      "Resolved lower-cluster offset: T17 is 16, T15 is 17, T18 is 18, T14 is 19, T20 is 20.",
+      "Clarified that theme_id is a stable identifier and not a priority rank.",
+      "Clarified that cross_reference_theme_ids is a downstream mapping-output field, not a dictionary-entry field.",
+      "Restored REFRAME as a permitted action for T05, T06, T12, and T20.",
+      "Revised T06 example_mapping_language so adversarial inconsistency signals are used for rebuttal mapping, not positive WS insertion."
+    ]
+  }
+}
